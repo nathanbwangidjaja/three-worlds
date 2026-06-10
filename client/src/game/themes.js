@@ -75,6 +75,7 @@ export const THEMES = {
         { tile: "#a8503a", dark: "#7e3826" },
         { tile: "#8a4438", dark: "#62302a" },
         { tile: "#6e463a", dark: "#4e322a" },
+        { tile: "#7e7a72", dark: "#5a564e" }, // zinc sheets (kampung roofs)
       ],
     },
     fillHouses: true, // OSM has the cluster streets but not the villas — generate them

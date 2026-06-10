@@ -462,36 +462,43 @@ export class WorldBuilder {
         if (segLen < 6) continue;
         const dx = (bx - ax) / segLen, dz = (bz - az) / segLen;
         const nx = -dz, nz = dx;
-        for (let d = 8; d < segLen - 6; d += 15 + rng() * 4) {
+        // north of Sudirman is kampung: tighter, denser, right at the lane
+        const north = (az + bz) / 2 < -70;
+        const step0 = north ? 11 : 15;
+        for (let d = 8; d < segLen - 6; d += step0 + rng() * 4) {
           for (const side of [-1, 1]) {
             if (rng() < 0.12) continue; // the odd empty lot
-            const setback = road.w / 2 + 6.5;
+            const setback = road.w / 2 + (north ? 3.8 : 6.5);
             const cx = ax + dx * d + nx * side * setback;
             const cz = az + dz * d + nz * side * setback;
             if (Math.hypot(cx, cz) > 520) continue;          // her cluster + neighbors
             if (!isFree(cx, cz)) continue;
-            if (nearRoad(cx, cz, 3.4)) continue;
+            if (nearRoad(cx, cz, north ? 2.2 : 3.4)) continue;
             if (inAreas(cx, cz, data.water) || inAreas(cx, cz, data.green)) continue;
-            // rectangular villa footprint facing the lane
-            const wAlong = 7.5 + rng() * 3.5;
-            const wDeep = 6 + rng() * 2.5;
+            // rectangular footprint facing the lane
+            const wAlong = north ? 5.5 + rng() * 2.5 : 7.5 + rng() * 3.5;
+            const wDeep = north ? 5 + rng() * 2 : 6 + rng() * 2.5;
             const pts = [
               [cx - dx * wAlong / 2 - nx * side * wDeep / 2, cz - dz * wAlong / 2 - nz * side * wDeep / 2],
               [cx + dx * wAlong / 2 - nx * side * wDeep / 2, cz + dz * wAlong / 2 - nz * side * wDeep / 2],
               [cx + dx * wAlong / 2 + nx * side * wDeep / 2, cz + dz * wAlong / 2 + nz * side * wDeep / 2],
               [cx - dx * wAlong / 2 + nx * side * wDeep / 2, cz - dz * wAlong / 2 + nz * side * wDeep / 2],
             ].map(([x, z]) => [Math.round(x * 10) / 10, Math.round(z * 10) / 10]);
-            const h = rng() < 0.2 ? 6.6 + rng() * 1.2 : 4 + rng() * 1.4;
+            const h = north
+              ? (rng() < 0.12 ? 6.4 + rng() : 3.6 + rng() * 1.6)
+              : (rng() < 0.2 ? 6.6 + rng() * 1.2 : 4 + rng() * 1.4);
             newHouses.push({ p: pts, h: Math.round(h * 10) / 10, c: "house" });
             markPoly(pts);
-            // front hedge between the lane and the yard (every ref photo has one)
-            this.hedgeSpots = this.hedgeSpots || [];
-            this.hedgeSpots.push({
-              x: ax + dx * d + nx * side * (road.w / 2 + 2.4),
-              z: az + dz * d + nz * side * (road.w / 2 + 2.4),
-              ry: Math.atan2(dx, dz),
-              len: wAlong + 1.5,
-            });
+            if (!north) {
+              // front hedge between the lane and the yard (every cluster ref has one)
+              this.hedgeSpots = this.hedgeSpots || [];
+              this.hedgeSpots.push({
+                x: ax + dx * d + nx * side * (road.w / 2 + 2.4),
+                z: az + dz * d + nz * side * (road.w / 2 + 2.4),
+                ry: Math.atan2(dx, dz),
+                len: wAlong + 1.5,
+              });
+            }
           }
         }
       }
@@ -936,6 +943,8 @@ export class WorldBuilder {
     if (theme.fillHouses) {
       this.buildRainTrees();
       this.buildHedges();
+      this.buildShrubs();
+      this.buildCrosswalks();
     }
 
     if (theme.treeKind === "palm") {
@@ -990,6 +999,114 @@ export class WorldBuilder {
       mesh.setMatrixAt(i, m);
     });
     mesh.castShadow = true;
+    this.group.add(mesh);
+  }
+
+  // wild roadside greenery in the kampung north (the refs are overgrown)
+  buildShrubs() {
+    const { rng } = this;
+    const spots = [];
+    for (const r of this.data.roads) {
+      if (r.t !== "road" || r.w > 6.8) continue;
+      for (let i = 1; i < r.p.length && spots.length < 600; i++) {
+        const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
+        if ((az + bz) / 2 > -60) continue; // north zone only
+        const segLen = Math.hypot(bx - ax, bz - az);
+        if (segLen < 3) continue;
+        const dx = (bx - ax) / segLen, dz = (bz - az) / segLen;
+        const nx = -dz, nz = dx;
+        for (let d = 2; d < segLen; d += 7 + rng() * 5) {
+          if (rng() > 0.55) continue;
+          const side = rng() > 0.5 ? 1 : -1;
+          const x = ax + dx * d + nx * side * (r.w / 2 + 1.1 + rng() * 1.2);
+          const z = az + dz * d + nz * side * (r.w / 2 + 1.1 + rng() * 1.2);
+          if (Math.hypot(x, z) > 540) continue;
+          spots.push([x, z]);
+        }
+      }
+      if (spots.length >= 600) break;
+    }
+    if (!spots.length) return;
+    const geo = new THREE.IcosahedronGeometry(1, 1);
+    geo.scale(1.15, 0.75, 1.15);
+    geo.translate(0, 0.6, 0);
+    const mesh = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({ color: 0xffffff }), spots.length);
+    mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(spots.length * 3), 3);
+    const greens = [0x3e6b35, 0x4a7a3c, 0x35602f, 0x568a42].map((c) => new THREE.Color(c));
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const eu = new THREE.Euler();
+    const scl = new THREE.Vector3();
+    spots.forEach(([x, z], i) => {
+      const s = 0.5 + rng() * 1.1;
+      eu.set(0, rng() * Math.PI * 2, 0);
+      q.setFromEuler(eu);
+      scl.set(s, s * (0.8 + rng() * 0.5), s);
+      m.compose(new THREE.Vector3(x, 0, z), q, scl);
+      mesh.setMatrixAt(i, m);
+      mesh.setColorAt(i, greens[Math.floor(rng() * greens.length)]);
+    });
+    mesh.castShadow = true;
+    this.group.add(mesh);
+  }
+
+  // zebra crosswalks where side streets meet the big avenues
+  buildCrosswalks() {
+    const big = this.data.roads.filter((r) => r.t === "road" && r.w >= 7.5);
+    if (!big.length) return;
+    const mouths = [];
+    for (const r of this.data.roads) {
+      if (r.w >= 7.5 || r.t !== "road") continue;
+      mouths.push(r.p[0], r.p[r.p.length - 1]);
+    }
+    const spots = [];
+    const taken = [];
+    for (const r of big) {
+      for (let i = 1; i < r.p.length; i++) {
+        const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
+        const segLen = Math.hypot(bx - ax, bz - az);
+        if (segLen < 2) continue;
+        const dx = (bx - ax) / segLen, dz = (bz - az) / segLen;
+        for (const [jx, jz] of mouths) {
+          // project the side-street mouth onto this carriageway
+          const t = (jx - ax) * dx + (jz - az) * dz;
+          if (t < 0 || t > segLen) continue;
+          const px = ax + dx * t, pz = az + dz * t;
+          const dist = Math.hypot(jx - px, jz - pz);
+          if (dist > r.w / 2 + 6) continue;
+          if (Math.hypot(px, pz) > 540) continue;
+          if (taken.some(([tx, tz]) => Math.hypot(tx - px, tz - pz) < 16)) continue;
+          taken.push([px, pz]);
+          spots.push({ x: px, z: pz, ry: Math.atan2(dx, dz), w: r.w });
+        }
+      }
+    }
+    if (!spots.length) return;
+    // stripes run across the road; bands perpendicular to walking direction
+    const canvasEl = document.createElement("canvas");
+    canvasEl.width = 128; canvasEl.height = 64;
+    const cctx = canvasEl.getContext("2d");
+    cctx.clearRect(0, 0, 128, 64);
+    cctx.fillStyle = "rgba(235,232,222,0.92)";
+    for (let x = 4; x < 128; x += 22) cctx.fillRect(x, 2, 12, 60);
+    const tex = new THREE.CanvasTexture(canvasEl);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const geo = new THREE.PlaneGeometry(1, 3.1);
+    geo.rotateX(-Math.PI / 2);
+    geo.rotateY(Math.PI / 2); // width along the carriageway's normal
+    const mat = new THREE.MeshLambertMaterial({ map: tex, transparent: true, depthWrite: false });
+    const mesh = new THREE.InstancedMesh(geo, mat, spots.length);
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const eu = new THREE.Euler();
+    const scl = new THREE.Vector3();
+    spots.forEach((s, i) => {
+      eu.set(0, s.ry, 0);
+      q.setFromEuler(eu);
+      scl.set(1, 1, s.w + 1);
+      m.compose(new THREE.Vector3(s.x, 0.185, s.z), q, scl);
+      mesh.setMatrixAt(i, m);
+    });
     this.group.add(mesh);
   }
 
