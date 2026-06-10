@@ -7,6 +7,7 @@ import {
   facadeTexture, houseWallTexture, storefrontTexture, roofTexture, flatRoofTexture,
   asphaltTexture, sidewalkTexture, grassTexture, cloudTexture, glowTexture,
   panelGridTexture, curtainWallTexture, ribbonBandTexture, garageTexture,
+  fenceTexture,
 } from "./textures.js";
 import { TUNING, STYLE_DEFS } from "./cityTuning.js";
 
@@ -155,6 +156,7 @@ export class WorldBuilder {
     onProgress?.(0.16, "filling the river");
     await this.nextFrame();
 
+    this.synthClusterLanes();
     this.fillClusterHouses();
 
     this.buildRoads();
@@ -168,6 +170,7 @@ export class WorldBuilder {
     await this.nextFrame();
 
     this.buildCars();
+    this.buildFences();
     if (theme.streetlights) this.buildStreetlamps();
     this.buildClouds();
     this.buildLights();
@@ -356,8 +359,42 @@ export class WorldBuilder {
     // materials would draw those as black holes
     add(laneGeos, new THREE.MeshLambertMaterial({ map: asphaltTexture({ base: roadBase, centerLine: true }), side: THREE.DoubleSide }));
     add(mainGeos, new THREE.MeshLambertMaterial({ map: asphaltTexture({ base: roadBase, centerLine: false }), side: THREE.DoubleSide }));
-    add(walkGeos, new THREE.MeshLambertMaterial({ map: sidewalkTexture({ base: this.theme.night ? "#3e4150" : "#969188" }), side: THREE.DoubleSide }));
+    add(walkGeos, new THREE.MeshLambertMaterial({ map: sidewalkTexture({ base: this.theme.sidewalk || (this.theme.night ? "#3e4150" : "#969188") }), side: THREE.DoubleSide }));
     add(pathGeos, new THREE.MeshLambertMaterial({ map: sidewalkTexture({ base: "#" + new THREE.Color(this.theme.path).getHexString() }), side: THREE.DoubleSide }));
+  }
+
+  // ----------------------------------------------- missing-lane synthesis
+  // The satellite shows Taman Beverly as a regular grid of east-west lanes
+  // (the Jl. Danau streets) but OSM only maps two of them. Synthesize the
+  // rest so the cluster's street grid — and then its houses — exist.
+  synthClusterLanes() {
+    if (!this.theme.fillHouses) return;
+    const data = this.data;
+    const exist = [];
+    for (const r of data.roads) for (const p of r.p) exist.push(p);
+    const nearExisting = (x, z, d = 22) => {
+      for (const [ex, ez] of exist) {
+        if (Math.abs(ex - x) < d && Math.abs(ez - z) < d && Math.hypot(ex - x, ez - z) < d) return true;
+      }
+      return false;
+    };
+    const lanes = [];
+    // east-west Danau lanes, matching the satellite's ~57 m row spacing
+    for (let z = 92; z <= 510; z += 57) {
+      if (nearExisting(120, z) && nearExisting(230, z)) continue; // already mapped (Matana, Mahalona)
+      lanes.push({ p: [[-78, z], [318, z]], w: 5.5, t: "road" });
+    }
+    // north-south spine from the gate + the golf-side lane
+    if (!(nearExisting(8, 220) && nearExisting(8, 420))) {
+      lanes.push({ p: [[8, 30], [8, 518]], w: 6.5, t: "road" });
+    }
+    if (!(nearExisting(314, 180) && nearExisting(314, 420))) {
+      lanes.push({ p: [[314, 92], [314, 508]], w: 5.5, t: "road" });
+    }
+    if (lanes.length) {
+      this.data = { ...data, roads: [...data.roads, ...lanes] };
+      this.synthLanes = lanes.length;
+    }
   }
 
   // -------------------------------------------------- missing-house filler
@@ -1024,6 +1061,116 @@ export class WorldBuilder {
     this.group.add(body, cabin, wheels);
   }
 
+  // ------------------------------------------------------ cluster fences
+  // Lippo Village avenues are lined with slim iron fences and white
+  // pillars guarding the clusters (see the real Sudirman frontage).
+  buildFences() {
+    if (!this.theme.fillHouses) return;
+    const data = this.data;
+    const big = data.roads.filter((r) => r.t === "road" && r.w >= 7.5);
+    if (!big.length) return;
+    // junction points of smaller roads → leave fence gaps there
+    const junctions = [];
+    for (const r of data.roads) {
+      if (r.w >= 7.5 && r.t === "road") continue;
+      for (const p of r.p) junctions.push(p);
+    }
+    const nearJunction = (x, z) => {
+      for (const [jx, jz] of junctions) {
+        if (Math.abs(jx - x) < 8 && Math.abs(jz - z) < 8 && Math.hypot(jx - x, jz - z) < 8) return true;
+      }
+      return false;
+    };
+
+    // sample points of all big roads, to detect a twin carriageway (median)
+    const bigPts = [];
+    big.forEach((r, ri) => {
+      for (let i = 1; i < r.p.length; i++) {
+        const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
+        const len = Math.hypot(bx - ax, bz - az);
+        for (let d = 0; d < len; d += 7) {
+          bigPts.push([ax + ((bx - ax) * d) / len, az + ((bz - az) * d) / len, ri]);
+        }
+      }
+    });
+    const facesTwinRoad = (x, z, ownRi) => {
+      for (const [rx, rz, ri] of bigPts) {
+        if (ri === ownRi) continue;
+        if (Math.abs(rx - x) < 13 && Math.abs(rz - z) < 13 && Math.hypot(rx - x, rz - z) < 13) return true;
+      }
+      return false;
+    };
+
+    const pillars = [], rails = [];
+    big.forEach((r, ri) => {
+      for (let i = 1; i < r.p.length; i++) {
+        const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
+        const segLen = Math.hypot(bx - ax, bz - az);
+        if (segLen < 4) continue;
+        const dx = (bx - ax) / segLen, dz = (bz - az) / segLen;
+        const nx = -dz, nz = dx;
+        const ry = Math.atan2(dx, dz);
+        for (const side of [-1, 1]) {
+          const off = r.w / 2 + 3.2;
+          for (let d = 0; d < segLen - 2; d += 12) {
+            const px = ax + dx * d + nx * side * off;
+            const pz = az + dz * d + nz * side * off;
+            if (Math.hypot(px, pz) > 540) continue;          // her area only
+            if (Math.hypot(px + 0.5, pz - 14) < 19) continue; // the gate opening
+            if (nearJunction(px, pz)) continue;
+            if (facesTwinRoad(px, pz, ri)) continue;         // median of a divided avenue
+            pillars.push({ x: px, z: pz });
+            const rxm = ax + dx * (d + 6) + nx * side * off;
+            const rzm = az + dz * (d + 6) + nz * side * off;
+            if (d + 12 < segLen && !nearJunction(rxm, rzm) &&
+                Math.hypot(rxm + 0.5, rzm - 14) >= 19 && Math.hypot(rxm, rzm) <= 540 &&
+                !facesTwinRoad(rxm, rzm, ri)) {
+              rails.push({ x: rxm, z: rzm, ry });
+            }
+            if (pillars.length > 700) break;
+          }
+          if (pillars.length > 700) break;
+        }
+        if (pillars.length > 700) break;
+      }
+    });
+    if (!pillars.length) return;
+
+    const pillarGeo = new THREE.BoxGeometry(0.32, 1.55, 0.32);
+    pillarGeo.translate(0, 0.78, 0);
+    const capGeo = new THREE.SphereGeometry(0.16, 6, 5);
+    capGeo.translate(0, 1.66, 0);
+    // open picket fence: textured plane with transparent gaps, not a wall
+    const railGeo = new THREE.PlaneGeometry(11.6, 1.5);
+    railGeo.rotateY(Math.PI / 2);
+    railGeo.translate(0, 0.78, 0);
+
+    const white = new THREE.MeshLambertMaterial({ color: 0xefe9dc });
+    const iron = new THREE.MeshLambertMaterial({
+      map: fenceTexture(), transparent: true, alphaTest: 0.4, side: THREE.DoubleSide,
+    });
+    iron.map.repeat.set(4, 1);
+    const pMesh = new THREE.InstancedMesh(pillarGeo, white, pillars.length);
+    const cMesh = new THREE.InstancedMesh(capGeo, white, pillars.length);
+    const rMesh = new THREE.InstancedMesh(railGeo, iron, rails.length);
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const eu = new THREE.Euler();
+    pillars.forEach((p, i) => {
+      m.makeTranslation(p.x, 0, p.z);
+      pMesh.setMatrixAt(i, m);
+      cMesh.setMatrixAt(i, m);
+    });
+    rails.forEach((rr, i) => {
+      eu.set(0, rr.ry, 0);
+      q.setFromEuler(eu);
+      m.compose(new THREE.Vector3(rr.x, 0, rr.z), q, new THREE.Vector3(1, 1, 1));
+      rMesh.setMatrixAt(i, m);
+    });
+    pMesh.castShadow = rMesh.castShadow = true;
+    this.group.add(pMesh, cMesh, rMesh);
+  }
+
   // ----------------------------------------------------- paris decorations
   buildStreetlamps() {
     const { rng } = this;
@@ -1051,7 +1198,11 @@ export class WorldBuilder {
     const headGeo = new THREE.SphereGeometry(0.32, 8, 6);
     headGeo.translate(0, 4.7, 0);
     const poles = new THREE.InstancedMesh(poleGeo, new THREE.MeshLambertMaterial({ color: 0x2a2a30 }), spots.length);
-    const heads = new THREE.InstancedMesh(headGeo, new THREE.MeshBasicMaterial({ color: 0xffd9a0 }), spots.length);
+    // lamp heads glow at night, read as dark glass in daylight cities
+    const headMat = this.theme.night
+      ? new THREE.MeshBasicMaterial({ color: 0xffd9a0 })
+      : new THREE.MeshLambertMaterial({ color: 0x3a3e44 });
+    const heads = new THREE.InstancedMesh(headGeo, headMat, spots.length);
     const m = new THREE.Matrix4();
     spots.forEach(([x, z], i) => {
       m.makeTranslation(x, 0, z);

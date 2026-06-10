@@ -58,7 +58,7 @@ export const THEMES = {
     roofTint: 0.55,
     roofColor: 0xa84a32, // terracotta roofs
     night: false,
-    streetlights: false,
+    streetlights: true, // black lamp posts line the Lippo avenues
     facadeStyles: [
       { type: "house", weight: 5, opts: { base: "#efe6d2", trim: "#b8a888", seed: 5 } },
       { type: "house", weight: 4, opts: { base: "#f4efe4", trim: "#9aa48e", seed: 9 } },
@@ -78,6 +78,7 @@ export const THEMES = {
       ],
     },
     fillHouses: true, // OSM has the cluster streets but not the villas — generate them
+    sidewalk: "#9a5f4a", // red brick pavers, like the real Lippo sidewalks
     storefront: {
       wall: "#c9b89a", night: false, bandH: 3.1,
       signColors: ["#b8542e", "#3e6048", "#2e4a5e", "#8a6a34", "#a83a4a"],

@@ -612,6 +612,22 @@ export function grassTexture({ base = "#5f7c44", blade = "#6f9050" } = {}) {
   return finish(c);
 }
 
+// iron fence: thin vertical pickets with transparent gaps + rails
+export function fenceTexture({ color = "#2c3530" } = {}) {
+  const W = 256, H = 64;
+  const [c, ctx] = canvas(W, H);
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = color;
+  // top + bottom rails
+  ctx.fillRect(0, 2, W, 5);
+  ctx.fillRect(0, H - 10, W, 5);
+  // pickets
+  for (let x = 4; x < W; x += 11) {
+    ctx.fillRect(x, 0, 3, H);
+  }
+  return finish(c);
+}
+
 // ------------------------------------------------------------ tower lattice
 // X-braced iron truss with transparent gaps.
 export function latticeTexture({ color = "#4a3c2c", thickness = 7 } = {}) {
