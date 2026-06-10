@@ -77,6 +77,7 @@ export const THEMES = {
         { tile: "#6e463a", dark: "#4e322a" },
       ],
     },
+    fillHouses: true, // OSM has the cluster streets but not the villas — generate them
     storefront: {
       wall: "#c9b89a", night: false, bandH: 3.1,
       signColors: ["#b8542e", "#3e6048", "#2e4a5e", "#8a6a34", "#a83a4a"],

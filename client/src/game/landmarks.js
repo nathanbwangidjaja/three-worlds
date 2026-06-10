@@ -390,64 +390,134 @@ export function buildPortal(x, z, label, color = 0x7bdcff) {
   return { group, tick };
 }
 
-// The white gatehouse at the entrance to her cluster (Taman Beverly Golf,
-// Lippo Village) — classical booth, terracotta hip roof, gate pillars.
+// The entrance of her cluster (Taman Beverly Golf, Lippo Village), modeled
+// on the real gate: a white classical pavilion on a landscaped island in
+// the middle of a divided driveway, curved white signature walls with
+// script lettering, white pillars with finials, dark-green iron gates.
 export function buildGatehouse(x, z, ry = 0) {
   const group = new THREE.Group();
   group.position.set(x, 0, z);
   group.rotation.y = ry;
-  const white = new THREE.MeshLambertMaterial({ color: 0xf2eee2 });
+  const white = new THREE.MeshLambertMaterial({ color: 0xf4f0e6 });
   const terra = new THREE.MeshLambertMaterial({ color: 0x9c4a34 });
+  const hedge = new THREE.MeshLambertMaterial({ color: 0x3e6b34 });
+  const iron = new THREE.MeshLambertMaterial({ color: 0x274234 });
 
-  // booth
-  const booth = new THREE.Mesh(new THREE.BoxGeometry(3.2, 3.4, 3.2), white);
-  booth.position.y = 1.7;
-  booth.castShadow = true;
-  group.add(booth);
-  // cornice
-  const cornice = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.3, 3.8), white);
-  cornice.position.y = 3.5;
-  group.add(cornice);
-  // terracotta hip roof
-  const roof = new THREE.Mesh(new THREE.ConeGeometry(2.9, 1.6, 4), terra);
-  roof.position.y = 4.4;
+  // landscaped island under the pavilion
+  const island = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.6, 0.45, 20), hedge);
+  island.position.y = 0.22;
+  group.add(island);
+  const islandTrim = new THREE.Mesh(new THREE.CylinderGeometry(3.7, 3.7, 0.18, 20), white);
+  islandTrim.position.y = 0.09;
+  group.add(islandTrim);
+  // bushes on the island
+  for (let i = 0; i < 5; i++) {
+    const bush = new THREE.Mesh(new THREE.SphereGeometry(0.5 + (i % 2) * 0.2, 7, 6), hedge);
+    const a = (i / 5) * Math.PI * 2;
+    bush.position.set(Math.cos(a) * 2.1, 0.7, Math.sin(a) * 2.1);
+    group.add(bush);
+  }
+
+  // pavilion: four corner columns + entablature + hip roof + finial
+  for (const cx of [-1.5, 1.5]) {
+    for (const cz of [-1.1, 1.1]) {
+      const col = new THREE.Mesh(new THREE.BoxGeometry(0.65, 3.6, 0.65), white);
+      col.position.set(cx, 2.2, cz);
+      col.castShadow = true;
+      group.add(col);
+      const colCap = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.22, 0.85), white);
+      colCap.position.set(cx, 4.05, cz);
+      group.add(colCap);
+    }
+  }
+  const entablature = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.7, 3.4), white);
+  entablature.position.y = 4.55;
+  entablature.castShadow = true;
+  group.add(entablature);
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(3.1, 1.5, 4), terra);
+  roof.position.y = 5.6;
   roof.rotation.y = Math.PI / 4;
   roof.castShadow = true;
   group.add(roof);
-  // doorway shadow
-  const door = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.2, 2.3),
-    new THREE.MeshLambertMaterial({ color: 0x2a2620 })
-  );
-  door.position.set(0, 1.25, 1.62);
-  group.add(door);
+  const finial = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 6), white);
+  finial.position.y = 6.45;
+  group.add(finial);
 
-  // gate pillars + low white walls each side
+  // guard booth tucked inside the pavilion
+  const booth = new THREE.Mesh(new THREE.BoxGeometry(1.7, 2.2, 1.4), white);
+  booth.position.set(0, 1.1, -0.2);
+  group.add(booth);
+
+  // each side: iron gate to a finial pillar, then a curved signature wall
+  const sigCanvas = (() => {
+    const c = document.createElement("canvas");
+    c.width = 512; c.height = 96;
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "#f4f0e6";
+    ctx.fillRect(0, 0, 512, 96);
+    ctx.fillStyle = "rgba(0,0,0,0.08)";
+    ctx.fillRect(0, 84, 512, 12);
+    ctx.font = "italic 600 44px Georgia, 'Times New Roman', serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#7a7468";
+    ctx.fillText("Taman Beverly Golf", 256, 46);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  })();
+
   for (const side of [-1, 1]) {
-    const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.7, 2.4, 0.7), white);
-    pillar.position.set(side * 4.6, 1.2, 0);
+    // dark green iron gate spanning island → pillar
+    const gate = new THREE.Mesh(new THREE.BoxGeometry(4.4, 1.9, 0.1), iron);
+    gate.position.set(side * 5.6, 1.0, 0.2);
+    group.add(gate);
+    // gate top rail + bars suggestion
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.12, 0.14), iron);
+    rail.position.set(side * 5.6, 2.05, 0.2);
+    group.add(rail);
+
+    // finial pillar
+    const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.85, 2.7, 0.85), white);
+    pillar.position.set(side * 8.1, 1.35, 0.2);
     pillar.castShadow = true;
     group.add(pillar);
-    const cap = new THREE.Mesh(new THREE.ConeGeometry(0.55, 0.45, 4), terra);
-    cap.position.set(side * 4.6, 2.6, 0);
-    cap.rotation.y = Math.PI / 4;
-    group.add(cap);
-    const wall = new THREE.Mesh(new THREE.BoxGeometry(5.4, 1.3, 0.3), white);
-    wall.position.set(side * 7.6, 0.65, 0);
-    group.add(wall);
-    // wrought gate bars
-    const gate = new THREE.Mesh(
-      new THREE.BoxGeometry(2.6, 1.7, 0.08),
-      new THREE.MeshLambertMaterial({ color: 0x2c2c30 })
-    );
-    gate.position.set(side * 2.95, 0.95, 0);
-    group.add(gate);
-  }
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 6), white);
+    ball.position.set(side * 8.1, 2.95, 0.2);
+    group.add(ball);
 
-  // golden name sign on the booth
-  const sprite = makeTextSprite("🌴 Taman Beverly", { scale: 0.014, color: "#f4e3b2" });
-  sprite.position.set(0, 4.0, 1.9);
-  group.add(sprite);
+    // curved signature wall sweeping back (3 angled segments)
+    let px = side * 8.55, pz = 0.4;
+    let ang = side * 0.28;
+    for (let s = 0; s < 3; s++) {
+      const segLen = 4.2;
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(segLen, 1.5, 0.28), white);
+      const mx = px + side * Math.cos(ang) * segLen * 0.5;
+      const mz = pz + Math.sin(Math.abs(ang)) * segLen * 0.5;
+      wall.position.set(mx, 0.75, mz);
+      wall.rotation.y = -side * Math.abs(ang);
+      wall.castShadow = true;
+      group.add(wall);
+      // script lettering on the middle segment
+      if (s === 1) {
+        const sign = new THREE.Mesh(
+          new THREE.PlaneGeometry(3.9, 0.74),
+          new THREE.MeshLambertMaterial({ map: sigCanvas })
+        );
+        sign.position.set(mx, 0.8, mz - 0.16);
+        sign.rotation.y = -side * Math.abs(ang) + Math.PI;
+        group.add(sign);
+      }
+      // wall cap
+      const cap = new THREE.Mesh(new THREE.BoxGeometry(segLen, 0.12, 0.4), white);
+      cap.position.set(mx, 1.55, mz);
+      cap.rotation.y = -side * Math.abs(ang);
+      group.add(cap);
+      px += side * Math.cos(ang) * segLen;
+      pz += Math.sin(Math.abs(ang)) * segLen;
+      ang += side * 0.18;
+    }
+  }
 
   return { group, tick: () => {} };
 }

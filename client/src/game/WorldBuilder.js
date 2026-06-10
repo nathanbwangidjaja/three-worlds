@@ -155,6 +155,8 @@ export class WorldBuilder {
     onProgress?.(0.16, "filling the river");
     await this.nextFrame();
 
+    this.fillClusterHouses();
+
     this.buildRoads();
     onProgress?.(0.26, "painting the streets");
     await this.nextFrame();
@@ -356,6 +358,103 @@ export class WorldBuilder {
     add(mainGeos, new THREE.MeshLambertMaterial({ map: asphaltTexture({ base: roadBase, centerLine: false }), side: THREE.DoubleSide }));
     add(walkGeos, new THREE.MeshLambertMaterial({ map: sidewalkTexture({ base: this.theme.night ? "#3e4150" : "#969188" }), side: THREE.DoubleSide }));
     add(pathGeos, new THREE.MeshLambertMaterial({ map: sidewalkTexture({ base: "#" + new THREE.Color(this.theme.path).getHexString() }), side: THREE.DoubleSide }));
+  }
+
+  // -------------------------------------------------- missing-house filler
+  // Gated clusters like hers have every street mapped in OSM but few house
+  // footprints. Walk the residential lanes and fill the empty lots with
+  // villas so the neighborhood is actually there.
+  fillClusterHouses() {
+    if (!this.theme.fillHouses) return;
+    const { rng } = this;
+    const data = this.data;
+
+    // coarse occupancy grid of existing buildings (and the houses we add)
+    const CELL = 18;
+    const occupied = new Map();
+    const keyOf = (x, z) => `${Math.floor(x / CELL)},${Math.floor(z / CELL)}`;
+    const markPoly = (pts) => {
+      const bb = polyBBox(pts);
+      for (let gx = Math.floor(bb.minX / CELL); gx <= Math.floor(bb.maxX / CELL); gx++) {
+        for (let gz = Math.floor(bb.minZ / CELL); gz <= Math.floor(bb.maxZ / CELL); gz++) {
+          occupied.set(`${gx},${gz}`, true);
+        }
+      }
+    };
+    for (const b of data.buildings) markPoly(b.p);
+    const isFree = (x, z) =>
+      !occupied.get(keyOf(x, z)) &&
+      !occupied.get(keyOf(x + 6, z)) && !occupied.get(keyOf(x - 6, z)) &&
+      !occupied.get(keyOf(x, z + 6)) && !occupied.get(keyOf(x, z - 6));
+
+    // keep clear of every road (not just the one we're walking)
+    const roadPts = [];
+    for (const r of data.roads) {
+      for (let i = 1; i < r.p.length; i++) {
+        const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
+        const len = Math.hypot(bx - ax, bz - az);
+        for (let d = 0; d < len; d += 8) {
+          roadPts.push([ax + ((bx - ax) * d) / len, az + ((bz - az) * d) / len, r.w / 2]);
+        }
+      }
+    }
+    const nearRoad = (x, z, clearance) => {
+      for (const [rx, rz, hw] of roadPts) {
+        if (Math.abs(rx - x) < hw + clearance && Math.abs(rz - z) < hw + clearance &&
+            Math.hypot(rx - x, rz - z) < hw + clearance) return true;
+      }
+      return false;
+    };
+    const inAreas = (x, z, areas) => {
+      for (const a of areas) {
+        const bb = polyBBox(a.p);
+        if (x < bb.minX || x > bb.maxX || z < bb.minZ || z > bb.maxZ) continue;
+        if (pointInPoly(x, z, a.p)) return true;
+      }
+      return false;
+    };
+
+    const newHouses = [];
+    for (const road of data.roads) {
+      if (road.t !== "road" || road.w > 6.8) continue; // cluster lanes only
+      for (let i = 1; i < road.p.length && newHouses.length < 460; i++) {
+        const [ax, az] = road.p[i - 1], [bx, bz] = road.p[i];
+        const segLen = Math.hypot(bx - ax, bz - az);
+        if (segLen < 6) continue;
+        const dx = (bx - ax) / segLen, dz = (bz - az) / segLen;
+        const nx = -dz, nz = dx;
+        for (let d = 8; d < segLen - 6; d += 15 + rng() * 4) {
+          for (const side of [-1, 1]) {
+            if (rng() < 0.12) continue; // the odd empty lot
+            const setback = road.w / 2 + 6.5;
+            const cx = ax + dx * d + nx * side * setback;
+            const cz = az + dz * d + nz * side * setback;
+            if (Math.hypot(cx, cz) > 520) continue;          // her cluster + neighbors
+            if (!isFree(cx, cz)) continue;
+            if (nearRoad(cx, cz, 3.4)) continue;
+            if (inAreas(cx, cz, data.water) || inAreas(cx, cz, data.green)) continue;
+            // rectangular villa footprint facing the lane
+            const wAlong = 7.5 + rng() * 3.5;
+            const wDeep = 6 + rng() * 2.5;
+            const pts = [
+              [cx - dx * wAlong / 2 - nx * side * wDeep / 2, cz - dz * wAlong / 2 - nz * side * wDeep / 2],
+              [cx + dx * wAlong / 2 - nx * side * wDeep / 2, cz + dz * wAlong / 2 - nz * side * wDeep / 2],
+              [cx + dx * wAlong / 2 + nx * side * wDeep / 2, cz + dz * wAlong / 2 + nz * side * wDeep / 2],
+              [cx - dx * wAlong / 2 + nx * side * wDeep / 2, cz - dz * wAlong / 2 + nz * side * wDeep / 2],
+            ].map(([x, z]) => [Math.round(x * 10) / 10, Math.round(z * 10) / 10]);
+            const h = rng() < 0.2 ? 6.6 + rng() * 1.2 : 4 + rng() * 1.4;
+            newHouses.push({ p: pts, h: Math.round(h * 10) / 10, c: "house" });
+            markPoly(pts);
+          }
+        }
+      }
+      if (newHouses.length >= 460) break;
+    }
+    if (newHouses.length) {
+      // never mutate the cached city JSON — Game reuses it across visits
+      this.data = { ...data, buildings: [...data.buildings, ...newHouses] };
+      this.filledHouses = newHouses.length;
+    }
   }
 
   // ------------------------------------------------------------ buildings

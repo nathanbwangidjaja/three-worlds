@@ -373,13 +373,17 @@ export class Game {
     // --- home markers ---
     if (key === "boston" || key === "tangerang") {
       const home = STORY.homes[key];
-      const [hx, hz] = this.world.findClearSpot(0, 0, 4);
-      this.homePos = { x: hx, z: hz };
+      let hx, hz;
       if (key === "tangerang") {
-        // her cluster's real gated entrance (Taman Beverly Golf)
-        const [gx, gz] = this.world.findClearSpot(hx + 16, hz + 8, 3);
-        addExtra(buildGatehouse(gx, gz, Math.atan2(hx - gx, hz - gz)));
+        // the real Taman Beverly Golf entrance: gate island sits in the
+        // divided driveway just south of Jl. Jend. Sudirman, signs face the
+        // avenue; the home marker waits inside the cluster
+        addExtra(buildGatehouse(-0.5, 14, 0));
+        [hx, hz] = this.world.findClearSpot(2, 44, 4);
+      } else {
+        [hx, hz] = this.world.findClearSpot(0, 0, 4);
       }
+      this.homePos = { x: hx, z: hz };
       const marker = buildHomeMarker(hx, hz, home.label);
       addExtra(marker);
       this.interactables.push({
