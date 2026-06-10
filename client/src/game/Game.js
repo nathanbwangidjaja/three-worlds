@@ -9,11 +9,19 @@ import {
   buildEiffelTower, buildTowerSparkles, buildHomeMarker, buildPortal, buildBench, buildPicnic,
 } from "./landmarks.js";
 import { RealWorld, PHOTOREAL_AVAILABLE, CITY_COORDS } from "./RealWorld.js";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { Net } from "../net.js";
 import * as UI from "./ui.js";
 
 // Champ de Mars axis (tower → École Militaire), unit vector in world coords
 const CHAMP_AXIS = { x: 0.62, z: 0.78 };
+
+// Google photogrammetry looks melted at street level — the polished stylized
+// world is the look. Flip to true if you ever want the photoreal experiment back.
+const USE_PHOTOREAL = false;
 
 export class Game {
   constructor({ container, role, name }) {
@@ -33,6 +41,15 @@ export class Game {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.1, 4000);
     this.camera.position.set(0, 6, 12);
+
+    // cinematic bloom — makes lit windows, sparkles and fireworks glow
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.bloom = new UnrealBloomPass(
+      new THREE.Vector2(window.innerWidth, window.innerHeight), 0.35, 0.65, 0.85
+    );
+    this.composer.addPass(this.bloom);
+    this.composer.addPass(new OutputPass());
 
     this.controls = new Controls(this.camera, this.renderer.domElement);
     this.effects = new Effects(this.scene);
@@ -67,6 +84,7 @@ export class Game {
       this.camera.aspect = window.innerWidth / window.innerHeight;
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(window.innerWidth, window.innerHeight);
+      this.composer.setSize(window.innerWidth, window.innerHeight);
     });
 
     this._bindNet();
@@ -211,11 +229,12 @@ export class Game {
     this.eiffel = null;
     this.towerCenter = null;
     if (this.world) this.world.dispose();
+    this.world = null;
     this.groundY = 0;
 
     this.worldKey = key;
     let data = null;
-    if (PHOTOREAL_AVAILABLE && CITY_COORDS[key].photoreal) {
+    if (USE_PHOTOREAL && PHOTOREAL_AVAILABLE && CITY_COORDS[key].photoreal) {
       // real Google photogrammetry, with the stylized world as fallback
       try {
         this.world = new RealWorld(this.scene, theme, { key, ...CITY_COORDS[key] }, this.camera, this.renderer);
@@ -235,6 +254,15 @@ export class Game {
     }
 
     UI.setAttribution(this.world.isPhotoreal ? "Google · " + (this.world.attributions() || "Photorealistic 3D Tiles") : "map data © OpenStreetMap");
+
+    // night Paris glows, day cities get just a kiss of bloom
+    if (theme.night) {
+      this.bloom.strength = 0.75;
+      this.bloom.threshold = 0.5;
+    } else {
+      this.bloom.strength = 0.28;
+      this.bloom.threshold = 0.88;
+    }
 
     this._setupExtras(key, data);
 
@@ -380,6 +408,7 @@ export class Game {
   _frame() {
     const dt = Math.min(0.05, this.clock.getDelta());
     const t = this.clock.elapsedTime;
+    if (!this.world) return; // mid-travel: old world disposed, new one still loading
 
     // local movement — in photoreal mode a steep rise in terrain is a wall
     const photoreal = !!this.world.isPhotoreal;
@@ -532,6 +561,6 @@ export class Game {
       UI.setBanner(null);
     }
 
-    this.renderer.render(this.scene, this.camera);
+    this.composer.render();
   }
 }

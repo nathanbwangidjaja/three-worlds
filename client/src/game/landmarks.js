@@ -1,6 +1,7 @@
 // Hand-built landmarks: the Eiffel Tower, home heart markers,
 // travel portals, the Champ de Mars bench & picnic.
 import * as THREE from "three";
+import { latticeTexture } from "./textures.js";
 
 // box beam between two points
 function beam(a, b, thick, material) {
@@ -145,6 +146,35 @@ export function buildEiffelTower() {
     const dirs = [[0, off], [off, 0], [0, -off], [-off, 0]];
     arch.position.set(dirs[f][0], 14, dirs[f][1]);
     g.add(arch);
+  }
+
+  // lattice skin: X-braced truss texture with transparent gaps on each face
+  // of every stage — this is what makes it read as real ironwork
+  const latTex = latticeTexture({ color: "#5a4632", thickness: 8 });
+  const latMat = new THREE.MeshLambertMaterial({
+    map: latTex, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide,
+    emissive: 0x8a5a1e, emissiveIntensity: 0.55,
+  });
+  for (let s = 0; s < lvl.length - 1; s++) {
+    const h0 = lvl[s], h1 = lvl[s + 1];
+    for (let f = 0; f < 4; f++) {
+      // trapezoid between the two stage widths, one per face
+      const tg = new THREE.BufferGeometry();
+      const w0 = h0.half, w1 = h1.half;
+      const pos = new Float32Array([
+        -w0, h0.y, w0, w0, h0.y, w0, w1, h1.y, w1, -w1, h1.y, w1,
+      ]);
+      const reps0 = Math.max(1, Math.round((w0 * 2) / 9));
+      const repsV = Math.max(1, Math.round((h1.y - h0.y) / 9));
+      const uv = new Float32Array([0, 0, reps0, 0, reps0, repsV, 0, repsV]);
+      tg.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+      tg.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+      tg.setIndex([0, 1, 2, 0, 2, 3]);
+      tg.computeVertexNormals();
+      const face = new THREE.Mesh(tg, latMat);
+      face.rotation.y = (f * Math.PI) / 2;
+      g.add(face);
+    }
   }
 
   // platforms

@@ -20,6 +20,16 @@ export const THEMES = {
     roofTint: 0.72,
     night: false,
     streetlights: false,
+    // textured facade styles: brick rowhouse, brown brick, modern glass (MIT-ish)
+    facadeStyles: [
+      { type: "facade", weight: 4, opts: { base: "#94553e", brick: {}, glassTop: "#cfe0ec", glassBottom: "#4a5f70", seed: 11 } },
+      { type: "facade", weight: 3, opts: { base: "#a87656", brick: { mortar: "rgba(235,225,210,0.28)" }, glassTop: "#d8e6ee", glassBottom: "#56707e", seed: 23 } },
+      { type: "facade", weight: 3, opts: { base: "#8a93a0", bigWindows: true, frame: "rgba(28,32,38,0.95)", glassTop: "#dfeaf2", glassBottom: "#7a93a6", noise: 0.03, seed: 37 } },
+    ],
+    roof: { type: "flat", base: "#5c544c" },
+    clouds: { count: 10, color: 0xfff4e0, opacity: 0.5 },
+    sunSprite: { color: "rgba(255,228,170,0.9)", size: 420 },
+    cars: true,
   },
 
   tangerang: {
@@ -42,6 +52,16 @@ export const THEMES = {
     roofColor: 0xa84a32, // terracotta roofs
     night: false,
     streetlights: false,
+    facadeStyles: [
+      { type: "house", weight: 5, opts: { base: "#efe6d2", trim: "#b8a888", seed: 5 } },
+      { type: "house", weight: 4, opts: { base: "#f4efe4", trim: "#9aa48e", seed: 9 } },
+      { type: "house", weight: 2, opts: { base: "#e2d2b4", trim: "#a8845e", seed: 13 } },
+      { type: "facade", weight: 1, opts: { base: "#d8cdb8", glassTop: "#cfdcd4", glassBottom: "#5e7468", seed: 17 } },
+    ],
+    roof: { type: "hip", tile: "#a8503a", dark: "#7e3826", maxArea: 420, height: 2.6 },
+    clouds: { count: 14, color: 0xffc9a0, opacity: 0.65 },
+    sunSprite: { color: "rgba(255,170,100,0.95)", size: 560 },
+    cars: true,
   },
 
   paris: {
@@ -64,7 +84,14 @@ export const THEMES = {
     night: true,
     stars: true,
     streetlights: true,
-    windowGlow: true,
+    facadeStyles: [
+      { type: "facade", weight: 5, opts: { base: "#6a6276", stone: true, balconies: true, shutters: true, lit: 0.42, glassTop: "#3a3f56", glassBottom: "#23283c", frame: "rgba(16,16,22,0.95)", seed: 7 } },
+      { type: "facade", weight: 4, opts: { base: "#5d566c", stone: true, balconies: true, lit: 0.34, glassTop: "#363b50", glassBottom: "#202538", frame: "rgba(14,14,20,0.95)", seed: 19 } },
+    ],
+    roof: { type: "flat", base: "#3c4254" }, // zinc
+    clouds: null,
+    sunSprite: null,
+    cars: true,
   },
 };
 
