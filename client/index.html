@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Our Little World ❤</title>
+  <style>
+    :root {
+      --rose: #ff6b9d;
+      --rose-dim: #c9447a;
+      --cream: #fff4ea;
+      --ink: #2a1f2d;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #0d0a14; }
+    body { font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; color: var(--cream); }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+
+    /* ---------- login ---------- */
+    #login {
+      position: fixed; inset: 0; z-index: 50;
+      display: flex; align-items: center; justify-content: center;
+      background: radial-gradient(ellipse at 50% 30%, #2b1b3d 0%, #120b1e 70%);
+    }
+    #login .card {
+      width: min(420px, 92vw);
+      background: rgba(255, 244, 234, 0.06);
+      border: 1px solid rgba(255, 157, 191, 0.25);
+      border-radius: 20px;
+      padding: 36px 32px;
+      backdrop-filter: blur(12px);
+      text-align: center;
+      box-shadow: 0 20px 80px rgba(0,0,0,.5);
+    }
+    #login h1 { font-size: 26px; font-weight: 600; letter-spacing: .5px; }
+    #login .sub { margin-top: 8px; font-size: 13px; opacity: .65; line-height: 1.5; }
+    #login .hearts { font-size: 28px; margin-bottom: 10px; letter-spacing: 6px; }
+    #login input {
+      margin-top: 22px; width: 100%;
+      padding: 12px 16px; border-radius: 12px;
+      border: 1px solid rgba(255,157,191,.3);
+      background: rgba(0,0,0,.25); color: var(--cream);
+      font-size: 15px; outline: none; text-align: center;
+    }
+    #login input:focus { border-color: var(--rose); }
+    #login .roles { display: flex; gap: 12px; margin-top: 18px; }
+    #login button.role {
+      flex: 1; padding: 14px 10px; font-size: 15px; cursor: pointer;
+      border-radius: 12px; border: 1px solid rgba(255,157,191,.35);
+      background: linear-gradient(160deg, rgba(255,107,157,.25), rgba(123,77,255,.18));
+      color: var(--cream); transition: transform .12s ease, box-shadow .12s ease;
+    }
+    #login button.role:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(255,107,157,.25); }
+    #login .status { margin-top: 16px; font-size: 12.5px; min-height: 16px; opacity: .8; }
+    #login .status.err { color: #ff9d9d; }
+
+    /* ---------- HUD ---------- */
+    .hud { position: fixed; z-index: 20; pointer-events: none; }
+    #location {
+      top: 18px; left: 22px;
+      text-shadow: 0 2px 12px rgba(0,0,0,.7);
+      opacity: 0; transition: opacity 1.2s ease;
+    }
+    #location .city { font-size: 22px; font-weight: 600; letter-spacing: 1px; }
+    #location .tag { font-size: 13px; opacity: .8; margin-top: 2px; }
+    #hint {
+      bottom: 16px; left: 50%; transform: translateX(-50%);
+      font-size: 12px; opacity: .55; text-shadow: 0 1px 6px rgba(0,0,0,.8);
+      white-space: nowrap;
+    }
+    #prompt {
+      bottom: 110px; left: 50%; transform: translateX(-50%);
+      background: rgba(20,12,24,.75); border: 1px solid rgba(255,157,191,.4);
+      padding: 8px 18px; border-radius: 999px; font-size: 14px;
+      display: none; backdrop-filter: blur(6px);
+    }
+    #banner {
+      top: 72px; left: 50%; transform: translateX(-50%);
+      font-size: 17px; color: #ffd9e6;
+      background: rgba(40,16,40,.65); border: 1px solid rgba(255,157,191,.5);
+      padding: 10px 26px; border-radius: 999px;
+      opacity: 0; transition: opacity .8s ease; backdrop-filter: blur(8px);
+      text-align: center;
+    }
+    #partner-status {
+      top: 18px; right: 22px; font-size: 13px; text-align: right;
+      text-shadow: 0 2px 8px rgba(0,0,0,.8); opacity: .85;
+    }
+
+    /* ---------- dialog ---------- */
+    #dialog {
+      position: fixed; z-index: 30; bottom: 140px; left: 50%; transform: translateX(-50%);
+      width: min(560px, 90vw);
+      background: rgba(22,13,26,.88); border: 1px solid rgba(255,157,191,.45);
+      border-radius: 16px; padding: 20px 26px; display: none;
+      backdrop-filter: blur(10px); box-shadow: 0 16px 60px rgba(0,0,0,.5);
+    }
+    #dialog .speaker { color: var(--rose); font-size: 13px; font-weight: 600; letter-spacing: 1px; margin-bottom: 6px; }
+    #dialog .text { font-size: 15px; line-height: 1.65; white-space: pre-wrap; }
+    #dialog .next { margin-top: 10px; font-size: 11px; opacity: .5; text-align: right; }
+
+    /* ---------- chat ---------- */
+    #chat {
+      position: fixed; z-index: 25; left: 22px; bottom: 18px;
+      width: min(340px, 70vw);
+    }
+    #chat-log { display: flex; flex-direction: column; gap: 5px; margin-bottom: 8px; max-height: 200px; overflow: hidden; }
+    #chat-log .msg {
+      font-size: 13.5px; line-height: 1.4;
+      background: rgba(15,10,20,.6); border-radius: 10px; padding: 6px 12px;
+      width: fit-content; max-width: 100%;
+      text-shadow: 0 1px 4px rgba(0,0,0,.6);
+      animation: chatIn .25s ease; transition: opacity 1s ease;
+    }
+    #chat-log .msg b { color: var(--rose); font-weight: 600; }
+    #chat-log .msg.sys { opacity: .75; font-style: italic; color: #c9b8ff; }
+    @keyframes chatIn { from { transform: translateY(8px); opacity: 0; } }
+    #chat-input {
+      width: 100%; padding: 9px 14px; border-radius: 10px;
+      border: 1px solid rgba(255,157,191,.25); background: rgba(10,6,14,.7);
+      color: var(--cream); font-size: 13.5px; outline: none; display: none;
+    }
+    #chat-input:focus { border-color: var(--rose); }
+
+    /* ---------- emotes ---------- */
+    #emotes { position: fixed; z-index: 25; right: 22px; bottom: 18px; display: flex; gap: 8px; }
+    #emotes button {
+      width: 46px; height: 46px; border-radius: 50%; font-size: 20px; cursor: pointer;
+      border: 1px solid rgba(255,157,191,.35); background: rgba(20,12,24,.7);
+      transition: transform .1s ease; backdrop-filter: blur(6px);
+    }
+    #emotes button:hover { transform: scale(1.12); }
+
+    /* ---------- travel ---------- */
+    #travel {
+      position: fixed; z-index: 40; inset: 0; display: none;
+      align-items: center; justify-content: center; background: rgba(8,5,12,.7);
+      backdrop-filter: blur(6px);
+    }
+    #travel .card {
+      background: rgba(25,15,30,.92); border: 1px solid rgba(255,157,191,.4);
+      border-radius: 18px; padding: 28px 32px; text-align: center; width: min(420px, 90vw);
+    }
+    #travel h2 { font-size: 19px; margin-bottom: 18px; font-weight: 600; }
+    #travel button {
+      display: block; width: 100%; margin-top: 10px; padding: 13px;
+      border-radius: 12px; font-size: 15px; cursor: pointer; color: var(--cream);
+      border: 1px solid rgba(255,157,191,.3);
+      background: linear-gradient(160deg, rgba(255,107,157,.18), rgba(123,77,255,.14));
+    }
+    #travel button:hover { border-color: var(--rose); }
+    #travel .close { background: none !important; border: none !important; opacity: .6; font-size: 12.5px; margin-top: 14px; }
+
+    /* ---------- fade ---------- */
+    #fade {
+      position: fixed; inset: 0; z-index: 45; background: #07050c;
+      opacity: 0; pointer-events: none; transition: opacity .7s ease;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; letter-spacing: 1px; color: #ffd9e6; text-align: center;
+    }
+    #fade.on { opacity: 1; pointer-events: all; }
+    #loading-pct { font-size: 13px; opacity: .7; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <div id="login">
+    <div class="card">
+      <div class="hearts">🌍 ❤️ 🗼</div>
+      <h1>Our Little World</h1>
+      <div class="sub">Boston · Tangerang · Paris<br/>Two homes, one meeting place.</div>
+      <input id="name-input" placeholder="your name" maxlength="16" autocomplete="off" />
+      <div class="roles">
+        <button class="role" data-role="you">Play as Him 💙</button>
+        <button class="role" data-role="her">Play as Her 🩷</button>
+      </div>
+      <div class="status" id="login-status"></div>
+    </div>
+  </div>
+
+  <div class="hud" id="location"><div class="city"></div><div class="tag"></div></div>
+  <div class="hud" id="partner-status"></div>
+  <div class="hud" id="banner"></div>
+  <div class="hud" id="prompt"></div>
+  <div class="hud" id="hint">WASD move · Shift run · Space hop · drag mouse to look · Enter chat · M travel · E interact</div>
+
+  <div id="dialog"><div class="speaker"></div><div class="text"></div><div class="next">space / click to continue</div></div>
+
+  <div id="chat">
+    <div id="chat-log"></div>
+    <input id="chat-input" placeholder="say something sweet… (Enter to send, Esc to close)" maxlength="160" autocomplete="off" />
+  </div>
+
+  <div id="emotes">
+    <button data-emote="heart" title="send hearts (1)">❤️</button>
+    <button data-emote="wave" title="wave (2)">👋</button>
+    <button data-emote="sparkle" title="sparkle (3)">✨</button>
+    <button data-emote="kiss" title="blow a kiss (4)">😘</button>
+  </div>
+
+  <div id="travel">
+    <div class="card">
+      <h2>✈️ Where to, love?</h2>
+      <div id="travel-options"></div>
+      <button class="close" id="travel-close">stay here (Esc)</button>
+    </div>
+  </div>
+
+  <div id="fade"><div><div id="fade-text">✈️</div><div id="loading-pct"></div></div></div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
