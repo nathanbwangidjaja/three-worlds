@@ -68,7 +68,7 @@ export class Effects {
     const vels = [];
     const origin = new THREE.Vector3(
       center.x + (Math.random() - 0.5) * 160,
-      90 + Math.random() * 110,
+      (center.y || 0) + 90 + Math.random() * 110,
       center.z + (Math.random() - 0.5) * 160
     );
     for (let i = 0; i < N; i++) {

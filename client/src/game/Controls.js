@@ -112,28 +112,34 @@ export class Controls {
     return Math.hypot(vx, vz);
   }
 
-  updateCamera(dt, blockedAtFn, focusY = 1.6) {
-    const target = new THREE.Vector3(this.pos.x, this.pos.y + focusY, this.pos.z);
+  updateCamera(dt, blockedAtFn, baseY = 0, rayFn = null, focusY = 1.6) {
+    const target = new THREE.Vector3(this.pos.x, baseY + this.pos.y + focusY, this.pos.z);
     const dir = new THREE.Vector3(
       Math.sin(this.yaw) * Math.cos(this.pitch),
       Math.sin(this.pitch),
       Math.cos(this.yaw) * Math.cos(this.pitch)
     );
 
-    // shorten the boom if a building is in the way
+    // shorten the boom if something is in the way (both checks when available:
+    // the ray catches walls facing us, the blocked test catches being inside
+    // geometry, where rays slip through backfaces)
     let dist = this.dist;
+    if (rayFn) {
+      const hit = rayFn(target, dir, this.dist + 0.5);
+      if (hit !== null) dist = Math.max(1.2, hit - 0.8);
+    }
     if (blockedAtFn) {
-      for (let d = 1.5; d <= this.dist; d += 0.75) {
+      for (let d = 1.5; d <= dist; d += 0.75) {
         const px = target.x + dir.x * d;
         const py = target.y + dir.y * d;
         const pz = target.z + dir.z * d;
-        if (blockedAtFn(px, pz, py)) { dist = Math.max(1.2, d - 1); break; }
+        if (blockedAtFn(px, pz, py)) { dist = Math.min(dist, Math.max(1.2, d - 1)); break; }
       }
     }
     this.camDist = this.camDist === undefined ? dist : this.camDist + (dist - this.camDist) * Math.min(1, dt * (dist < this.camDist ? 14 : 3));
 
     const desired = target.clone().addScaledVector(dir, this.camDist);
-    desired.y = Math.max(0.7, desired.y);
+    desired.y = Math.max(baseY + 0.7, desired.y);
     this.camera.position.lerp(desired, Math.min(1, dt * 7));
     this.camera.lookAt(target);
   }

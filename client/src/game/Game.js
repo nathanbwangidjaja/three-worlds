@@ -6,8 +6,9 @@ import { Avatar } from "./Avatar.js";
 import { Controls } from "./Controls.js";
 import { Effects } from "./Effects.js";
 import {
-  buildEiffelTower, buildHomeMarker, buildPortal, buildBench, buildPicnic,
+  buildEiffelTower, buildTowerSparkles, buildHomeMarker, buildPortal, buildBench, buildPicnic,
 } from "./landmarks.js";
+import { RealWorld, PHOTOREAL_AVAILABLE, CITY_COORDS } from "./RealWorld.js";
 import { Net } from "../net.js";
 import * as UI from "./ui.js";
 
@@ -39,6 +40,10 @@ export class Game {
     this.avatar = new Avatar(role, name);
     this.scene.add(this.avatar.group);
 
+    // soft key light that follows the couple so they read clearly at dusk
+    this.avatarLight = new THREE.PointLight(0xffe8d0, 30, 14, 2);
+    this.scene.add(this.avatarLight);
+
     this.remote = null;          // { avatar, target:{...}, state }
     this.remoteState = null;     // latest known partner state (any world)
 
@@ -54,8 +59,11 @@ export class Game {
     this.moveTimer = 0;
     this.clock = new THREE.Clock();
     this.dataCache = {};
+    this.groundY = 0;          // terrain height under the avatar (photoreal)
+    this.extraSettleTimer = 0; // re-seat landmarks on streaming terrain
 
     window.addEventListener("resize", () => {
+      if (window.innerWidth < 2 || window.innerHeight < 2) return; // minimized/hidden
       this.camera.aspect = window.innerWidth / window.innerHeight;
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -143,7 +151,7 @@ export class Game {
   }
 
   emote(kind) {
-    this.effects.emote(this.controls.pos, kind);
+    this.effects.emote(this.avatar.group.position, kind);
     if (kind === "wave") this.avatar.wave(this.clock.elapsedTime);
     Net.sendEmote(kind);
   }
@@ -192,7 +200,6 @@ export class Game {
 
   async loadWorld(key) {
     const theme = THEMES[key];
-    const data = await this.loadData(key);
 
     // tear down old world
     this.effects.clear();
@@ -204,10 +211,30 @@ export class Game {
     this.eiffel = null;
     this.towerCenter = null;
     if (this.world) this.world.dispose();
+    this.groundY = 0;
 
     this.worldKey = key;
-    this.world = new WorldBuilder(this.scene, theme, data);
-    await this.world.build((pct, label) => UI.setLoading(pct, label));
+    let data = null;
+    if (PHOTOREAL_AVAILABLE && CITY_COORDS[key].photoreal) {
+      // real Google photogrammetry, with the stylized world as fallback
+      try {
+        this.world = new RealWorld(this.scene, theme, { key, ...CITY_COORDS[key] }, this.camera, this.renderer);
+        await this.world.build((pct, label) => UI.setLoading(pct, label));
+      } catch (err) {
+        console.warn(`[world] photoreal failed for ${key}, falling back to stylized:`, err);
+        try { this.world.dispose(); } catch { /* already broken */ }
+        this.world = null;
+      }
+    }
+    if (!this.world) {
+      data = await this.loadData(key);
+      this.world = new WorldBuilder(this.scene, theme, data);
+      await this.world.build((pct, label) => UI.setLoading(pct, label));
+      this.renderer.toneMappingExposure = 1.18;
+      this.scene.fog = null;
+    }
+
+    UI.setAttribution(this.world.isPhotoreal ? "Google · " + (this.world.attributions() || "Photorealistic 3D Tiles") : "map data © OpenStreetMap");
 
     this._setupExtras(key, data);
 
@@ -215,7 +242,14 @@ export class Game {
     const spawn = this._spawnPoint(key);
     this.controls.pos.set(spawn[0], 0, spawn[1]);
     this.controls.yaw = spawn[2] ?? Math.PI;
-    this.camera.position.set(spawn[0] + Math.sin(this.controls.yaw) * 9, 5, spawn[1] + Math.cos(this.controls.yaw) * 9);
+    if (this.world.isPhotoreal) {
+      this.groundY = this.world.groundHeight(spawn[0], spawn[1]) ?? this.world.groundHeight(0, 0) ?? 0;
+    }
+    this.camera.position.set(
+      spawn[0] + Math.sin(this.controls.yaw) * 9,
+      this.groundY + 5,
+      spawn[1] + Math.cos(this.controls.yaw) * 9
+    );
 
     UI.setLocation(theme.title, theme.subtitle);
     Net.sendWorld({ world: key, x: spawn[0], z: spawn[1] });
@@ -234,7 +268,9 @@ export class Game {
   _spawnPoint(key) {
     if (key === "paris") {
       const c = this.towerCenter || { x: 0, z: 0 };
-      const sx = c.x + CHAMP_AXIS.x * 95, sz = c.z + CHAMP_AXIS.z * 95;
+      // photoreal: spawn on the open Champ de Mars, clear of the base fencing
+      const d = this.world.isPhotoreal ? 185 : 95;
+      const sx = c.x + CHAMP_AXIS.x * d, sz = c.z + CHAMP_AXIS.z * d;
       const [x, z] = this.world.findClearSpot(sx, sz);
       // face the tower
       const yaw = Math.atan2(c.x - x, c.z - z) + Math.PI;
@@ -255,23 +291,34 @@ export class Game {
 
     // --- Eiffel tower (paris) ---
     if (key === "paris") {
-      const towerB = data.buildings.find((b) => b.tower && b.h > 100);
       let cx = 0, cz = 0;
-      if (towerB) {
-        for (const [x, z] of towerB.p) { cx += x; cz += z; }
-        cx /= towerB.p.length; cz /= towerB.p.length;
+      if (this.world.isPhotoreal) {
+        // the world is centered exactly on the real tower — add only the magic
+        this.towerCenter = { x: 0, z: 0 };
+        const sparkles = buildTowerSparkles();
+        addExtra(sparkles);
+        this.eiffel = sparkles;
+      } else {
+        const towerB = data.buildings.find((b) => b.tower && b.h > 100);
+        if (towerB) {
+          for (const [x, z] of towerB.p) { cx += x; cz += z; }
+          cx /= towerB.p.length; cz /= towerB.p.length;
+        }
+        this.towerCenter = { x: cx, z: cz };
+        const eiffel = buildEiffelTower();
+        eiffel.group.position.set(cx, 0, cz);
+        // align tower base diagonals with the Seine-ish orientation
+        eiffel.group.rotation.y = Math.atan2(CHAMP_AXIS.x, CHAMP_AXIS.z);
+        addExtra(eiffel);
+        this.eiffel = eiffel;
       }
-      this.towerCenter = { x: cx, z: cz };
-      const eiffel = buildEiffelTower();
-      eiffel.group.position.set(cx, 0, cz);
-      // align tower base diagonals with the Seine-ish orientation
-      eiffel.group.rotation.y = Math.atan2(CHAMP_AXIS.x, CHAMP_AXIS.z);
-      addExtra(eiffel);
-      this.eiffel = eiffel;
 
-      // plaque at the base
+      // plaque at the base (photoreal: just outside the real security fence)
+      const plaqueD = this.world.isPhotoreal ? 125 : 42;
       this.interactables.push({
-        x: cx + CHAMP_AXIS.x * 42, z: cz + CHAMP_AXIS.z * 42, range: 6,
+        x: this.towerCenter.x + CHAMP_AXIS.x * plaqueD,
+        z: this.towerCenter.z + CHAMP_AXIS.z * plaqueD,
+        range: 8,
         prompt: "press E · read the plaque 🗼",
         onInteract: () => UI.showDialog(STORY.eiffel.speaker, STORY.eiffel.pages),
       });
@@ -334,13 +381,37 @@ export class Game {
     const dt = Math.min(0.05, this.clock.getDelta());
     const t = this.clock.elapsedTime;
 
-    // local movement
-    const blocked = (x, z) => this.world.blocked(x, z);
+    // local movement — in photoreal mode a steep rise in terrain is a wall
+    const photoreal = !!this.world.isPhotoreal;
+    const headY = this.groundY + 2.5;
+    const blocked = photoreal
+      ? (x, z) => {
+          const gy = this.world.groundHeight(x, z, true, headY);
+          return gy !== null && gy - this.groundY > 2.0;
+        }
+      : (x, z) => this.world.blocked(x, z);
     const speed = this.controls.update(dt, blocked, this.world.data.radius);
     this.controls.enabled = !UI.dialogOpen() && !UI.chatOpen() && !UI.travelOpen();
 
     const p = this.controls.pos;
-    this.avatar.group.position.copy(p);
+    if (photoreal) {
+      // cast from head height so bridges/arches overhead don't grab the avatar
+      let gy = this.world.groundHeight(p.x, p.z, true, headY);
+      if (gy === null) gy = this.world.groundHeight(p.x, p.z); // fresh terrain: try from the sky
+      // a wild jump is almost always a stale/coarse-LOD reading — re-verify
+      if (gy !== null && Math.abs(gy - this.groundY) > 25) {
+        gy = this.world.groundHeight(p.x, p.z, true);
+      }
+      if (gy !== null) {
+        // snap down fast, climb smoothly
+        const k = gy < this.groundY ? Math.min(1, dt * 14) : Math.min(1, dt * 9);
+        this.groundY += (gy - this.groundY) * k;
+      }
+    } else {
+      this.groundY = 0;
+    }
+    this.avatar.group.position.set(p.x, this.groundY + p.y, p.z);
+    this.avatarLight.position.set(p.x, this.groundY + p.y + 3.2, p.z);
     // smooth heading turn
     let dh = this.controls.heading - this.avatar.group.rotation.y;
     while (dh > Math.PI) dh -= Math.PI * 2;
@@ -348,19 +419,58 @@ export class Game {
     this.avatar.group.rotation.y += dh * Math.min(1, dt * 12);
     this.avatar.animate(dt, speed, t);
 
-    this.controls.updateCamera(dt, (x, z, y) => this.world.blockedAt(x, z, y));
+    this.controls.updateCamera(
+      dt,
+      photoreal
+        // "inside a building" = below the top surface at that spot, with a pass
+        // for being under the tower/bridges (surface far above ≈ open air)
+        ? (x, z, y) => {
+            const s = this.world.groundHeight(x, z);
+            return s !== null && s > y + 1.2 && s - y < 40;
+          }
+        : (x, z, y) => this.world.blockedAt(x, z, y),
+      this.groundY,
+      photoreal ? (origin, dir, far) => this.world.rayDistance(origin, dir, far) : null
+    );
     this.world.updateSun(p);
     this.world.tick(t, dt);
     for (const e of this.extras) e.tick?.(t, dt);
     this.effects.update(dt);
+
+    // photogrammetry streams in over time — keep landmarks seated on it
+    if (photoreal) {
+      this.extraSettleTimer -= dt;
+      if (this.extraSettleTimer <= 0) {
+        this.extraSettleTimer = 2;
+        for (const e of this.extras) {
+          const g = e.group;
+          // low origin so the tower sparkles seat at the tower BASE, not on a platform
+          const gy = this.world.groundHeight(g.position.x, g.position.z, true, this.groundY + 20)
+            ?? this.world.groundHeight(g.position.x, g.position.z);
+          if (gy !== null) g.position.y = gy;
+        }
+        UI.setAttribution("Google · " + (this.world.attributions() || "Photorealistic 3D Tiles"));
+      }
+    }
 
     // remote interpolation
     if (this.remote) {
       const r = this.remote;
       const tgt = r.target;
       const g = r.avatar.group;
+      // in photoreal mode trust OUR terrain for their feet (different clients
+      // can stream different LODs; the bot doesn't know terrain at all)
+      let ty = tgt.y;
+      if (photoreal) {
+        // smooth out LOD differences between clients, but never override the
+        // sender by more than a few meters — their own ground truth wins
+        const rg = this.world.groundHeight(tgt.x, tgt.z, true, tgt.y + 3);
+        if (rg !== null && Math.abs(rg - tgt.y) < 6) {
+          ty = rg + Math.max(0, Math.min(3, tgt.y - rg));
+        }
+      }
       g.position.x += (tgt.x - g.position.x) * Math.min(1, dt * 10);
-      g.position.y += (tgt.y - g.position.y) * Math.min(1, dt * 10);
+      g.position.y += (ty - g.position.y) * Math.min(1, dt * 10);
       g.position.z += (tgt.z - g.position.z) * Math.min(1, dt * 10);
       let rdh = tgt.ry - g.rotation.y;
       while (rdh > Math.PI) rdh -= Math.PI * 2;
@@ -374,7 +484,9 @@ export class Game {
     if (this.moveTimer > 0.1) {
       this.moveTimer = 0;
       Net.sendMove({
-        x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2),
+        x: +p.x.toFixed(2),
+        y: +this.avatar.group.position.y.toFixed(2), // absolute, includes terrain
+        z: +p.z.toFixed(2),
         ry: +this.avatar.group.rotation.y.toFixed(3),
         speed: +speed.toFixed(2),
       });
@@ -397,10 +509,11 @@ export class Game {
 
     // the Eiffel moment 💞
     if (this.worldKey === "paris" && this.towerCenter) {
-      const near = Math.hypot(p.x - this.towerCenter.x, p.z - this.towerCenter.z) < 110;
+      const nearR = this.world.isPhotoreal ? 230 : 110; // photoreal: the whole tower end of the Champ
+      const near = Math.hypot(p.x - this.towerCenter.x, p.z - this.towerCenter.z) < nearR;
       const partnerNear = this.remote &&
         Math.hypot(this.remote.avatar.group.position.x - this.towerCenter.x,
-                   this.remote.avatar.group.position.z - this.towerCenter.z) < 110;
+                   this.remote.avatar.group.position.z - this.towerCenter.z) < nearR;
       const together = near && partnerNear;
       if (together !== this.togetherAtTower) {
         this.togetherAtTower = together;
@@ -411,7 +524,7 @@ export class Game {
         this.fireworkTimer -= dt;
         if (this.fireworkTimer <= 0) {
           this.fireworkTimer = 0.9 + Math.random() * 0.9;
-          this.effects.firework(this.towerCenter);
+          this.effects.firework({ ...this.towerCenter, y: this.groundY });
         }
       }
     } else if (this.togetherAtTower) {

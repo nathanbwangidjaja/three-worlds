@@ -10,6 +10,8 @@ if (typeof globalThis.WebSocket === "undefined") {
 
 const world = process.argv[2] || "boston";
 const seconds = Number(process.argv[3]) || 45;
+// ground height to walk at (photoreal cities have real terrain: boston ≈ -26, paris ≈ 71)
+const baseY = Number(process.argv[4]) || { boston: -26, paris: 71, tangerang: 0 }[world] || 0;
 const url = process.env.SERVER_URL || "ws://localhost:2567";
 
 const client = new Client(url);
@@ -25,7 +27,7 @@ const iv = setInterval(() => {
   t += 0.1;
   const x = cx + Math.cos(t) * r;
   const z = cz + Math.sin(t) * r;
-  room.send("move", { x, y: 0, z, ry: t + Math.PI / 2, speed: 2.5 });
+  room.send("move", { x, y: baseY, z, ry: t + Math.PI / 2, speed: 2.5 });
 }, 100);
 
 setTimeout(() => room.send("chat", { text: "hii it's me!! this city is so cute 🥺" }), 3000);

@@ -18,6 +18,10 @@ export function setPartnerStatus(text) {
   $("partner-status").textContent = text ?? "";
 }
 
+export function setAttribution(text) {
+  $("attribution").textContent = text ?? "";
+}
+
 export function setPrompt(text) {
   const el = $("prompt");
   if (text) { el.textContent = text; el.style.display = "block"; }

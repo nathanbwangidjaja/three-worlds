@@ -8,6 +8,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "3d-tiles-renderer": "^0.4.28",
     "colyseus.js": "^0.16.0",
     "three": "^0.184.0"
   },

@@ -13,6 +13,84 @@ function beam(a, b, thick, material) {
   return mesh;
 }
 
+// Just the magic — golden twinkle particles + rotating beacon + warm
+// uplights, sized to the real tower. Used in photoreal mode where the
+// tower itself is real photogrammetry.
+export function buildTowerSparkles({ height = 320, baseHalf = 32 } = {}) {
+  const g = new THREE.Group();
+
+  const glow = new THREE.PointLight(0xffb24a, 5200, 600, 1.7);
+  glow.position.set(0, height * 0.28, 0);
+  g.add(glow);
+  const glowTop = new THREE.PointLight(0xffd9a0, 1500, 280, 1.7);
+  glowTop.position.set(0, height * 0.8, 0);
+  g.add(glowTop);
+
+  const beaconPivot = new THREE.Group();
+  beaconPivot.position.y = height * 0.95;
+  const beamMesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.4, 7, 220, 10, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: 0xfff2cc, transparent: true, opacity: 0.16,
+      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false,
+    })
+  );
+  beamMesh.rotation.z = Math.PI / 2 - 0.06;
+  beamMesh.position.x = 110;
+  beaconPivot.add(beamMesh);
+  g.add(beaconPivot);
+
+  const N = 480;
+  const pos = new Float32Array(N * 3);
+  const seed = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const t = Math.random();
+    const y = t * height;
+    const k = 1 - y / height;
+    const half = 2.5 + baseHalf * Math.pow(k, 1.6);
+    pos[i * 3] = (Math.random() * 2 - 1) * half;
+    pos[i * 3 + 1] = y;
+    pos[i * 3 + 2] = (Math.random() * 2 - 1) * half;
+    seed[i] = Math.random() * Math.PI * 2;
+  }
+  const sparkGeo = new THREE.BufferGeometry();
+  sparkGeo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  sparkGeo.setAttribute("seed", new THREE.BufferAttribute(seed, 1));
+  const sparkMat = makeSparkleMaterial();
+  g.add(new THREE.Points(sparkGeo, sparkMat));
+
+  const tick = (t) => {
+    sparkMat.uniforms.time.value = t;
+    beaconPivot.rotation.y = t * 0.5;
+  };
+  const setSparkleBoost = (v) => { sparkMat.uniforms.boost.value = v; };
+  return { group: g, tick, setSparkleBoost };
+}
+
+function makeSparkleMaterial() {
+  return new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: { time: { value: 0 }, boost: { value: 0.45 } },
+    vertexShader: `
+      attribute float seed; uniform float time; varying float vTwinkle;
+      void main() {
+        vTwinkle = max(0.0, sin(time * 6.0 + seed * 13.7));
+        vTwinkle = pow(vTwinkle, 6.0);
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = (2.0 + vTwinkle * 5.0) * (300.0 / -mv.z);
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `
+      varying float vTwinkle; uniform float boost;
+      void main() {
+        float d = length(gl_PointCoord - 0.5);
+        if (d > 0.5) discard;
+        float a = (1.0 - d * 2.0) * (0.12 + vTwinkle) * boost;
+        gl_FragColor = vec4(1.0, 0.92, 0.6, a);
+      }`,
+  });
+}
+
 export function buildEiffelTower() {
   const g = new THREE.Group();
   const mat = new THREE.MeshLambertMaterial({ color: 0x6a543c, emissive: 0x8a5a1e, emissiveIntensity: 0.7 });

@@ -121,7 +121,8 @@ export class WorldBuilder {
   }
 
   nextFrame() {
-    return new Promise((r) => requestAnimationFrame(r));
+    // setTimeout, not rAF — rAF never fires in hidden tabs and would stall loading
+    return new Promise((r) => setTimeout(r, 0));
   }
 
   // ----------------------------------------------------------------- sky
