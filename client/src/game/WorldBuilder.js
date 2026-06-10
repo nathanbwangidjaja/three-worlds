@@ -171,6 +171,7 @@ export class WorldBuilder {
 
     this.buildCars();
     this.buildFences();
+    this.buildMedians();
     if (theme.streetlights) this.buildStreetlamps();
     this.buildClouds();
     this.buildLights();
@@ -922,6 +923,9 @@ export class WorldBuilder {
 
     const foliageColors = theme.treeFoliage.map((c) => new THREE.Color(c));
 
+    // big rain trees arching over the avenues (the Sudirman canopy)
+    if (theme.fillHouses) this.buildRainTrees();
+
     if (theme.treeKind === "palm") {
       this.buildPalms(trees, foliageColors);
       return;
@@ -953,6 +957,53 @@ export class WorldBuilder {
     });
     trunkMesh.castShadow = true;
     blobMesh.castShadow = true;
+    this.group.add(trunkMesh, blobMesh);
+  }
+
+  buildRainTrees() {
+    const { rng } = this;
+    const spots = [];
+    for (const r of this.data.roads) {
+      if (r.t !== "road" || r.w < 7.5) continue;
+      for (let i = 1; i < r.p.length && spots.length < 240; i++) {
+        const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
+        const segLen = Math.hypot(bx - ax, bz - az);
+        const dx = (bx - ax) / segLen, dz = (bz - az) / segLen;
+        const nx = -dz, nz = dx;
+        for (let d = 10; d < segLen; d += 24 + rng() * 8) {
+          const side = rng() > 0.5 ? 1 : -1;
+          const x = ax + dx * d + nx * side * (r.w / 2 + 4.5);
+          const z = az + dz * d + nz * side * (r.w / 2 + 4.5);
+          if (Math.hypot(x, z) > 560) continue;
+          spots.push([x, z]);
+        }
+      }
+      if (spots.length >= 240) break;
+    }
+    if (!spots.length) return;
+
+    const trunkGeo = new THREE.CylinderGeometry(0.35, 0.55, 6.5, 6);
+    trunkGeo.translate(0, 3.25, 0);
+    const blobGeo = new THREE.IcosahedronGeometry(5.2, 1);
+    blobGeo.scale(1.35, 0.55, 1.35); // wide flat rain-tree crown
+    const trunkMesh = new THREE.InstancedMesh(trunkGeo, new THREE.MeshLambertMaterial({ color: 0x4e4030 }), spots.length);
+    const blobMesh = new THREE.InstancedMesh(blobGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), spots.length);
+    blobMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(spots.length * 3), 3);
+    const crowns = [0x2e5d2e, 0x386b35, 0x2a5429].map((c) => new THREE.Color(c));
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const eu = new THREE.Euler();
+    spots.forEach(([x, z], i) => {
+      const s = 0.85 + rng() * 0.5;
+      eu.set(0, rng() * Math.PI * 2, (rng() - 0.5) * 0.08);
+      q.setFromEuler(eu);
+      m.compose(new THREE.Vector3(x, 0, z), q, new THREE.Vector3(s, s, s));
+      trunkMesh.setMatrixAt(i, m);
+      m.compose(new THREE.Vector3(x, 6.4 * s, z), q, new THREE.Vector3(s, s, s));
+      blobMesh.setMatrixAt(i, m);
+      blobMesh.setColorAt(i, crowns[Math.floor(rng() * crowns.length)]);
+    });
+    trunkMesh.castShadow = blobMesh.castShadow = true;
     this.group.add(trunkMesh, blobMesh);
   }
 
@@ -1169,6 +1220,69 @@ export class WorldBuilder {
     });
     pMesh.castShadow = rMesh.castShadow = true;
     this.group.add(pMesh, cMesh, rMesh);
+  }
+
+  // ----------------------------------------------------- avenue medians
+  // Divided avenues (twin one-way carriageways) get the real grass median
+  // strip between them instead of bare ground.
+  buildMedians() {
+    if (!this.theme.fillHouses) return;
+    const data = this.data;
+    const big = data.roads.filter((r) => r.t === "road" && r.w >= 7.5);
+    if (big.length < 2) return;
+    const bigPts = [];
+    big.forEach((r, ri) => {
+      for (let i = 1; i < r.p.length; i++) {
+        const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
+        const len = Math.hypot(bx - ax, bz - az);
+        for (let d = 0; d < len; d += 7) {
+          bigPts.push([ax + ((bx - ax) * d) / len, az + ((bz - az) * d) / len, ri]);
+        }
+      }
+    });
+    const twinAt = (x, z, ownRi) => {
+      for (const [rx, rz, ri] of bigPts) {
+        if (ri === ownRi) continue;
+        if (Math.abs(rx - x) < 13 && Math.abs(rz - z) < 13 && Math.hypot(rx - x, rz - z) < 13) return true;
+      }
+      return false;
+    };
+
+    const geos = [];
+    big.forEach((r, ri) => {
+      for (const side of [-1, 1]) {
+        let run = [];
+        const flush = () => {
+          if (run.length >= 2) {
+            try { geos.push(ribbonGeometry(run, 3.6, 0.13, 6)); } catch { /* skip */ }
+          }
+          run = [];
+        };
+        for (let i = 0; i < r.p.length; i++) {
+          const [x, z] = r.p[i];
+          // vertex normal from neighbors
+          let dx = 0, dz = 0;
+          if (i > 0) { dx += x - r.p[i - 1][0]; dz += z - r.p[i - 1][1]; }
+          if (i < r.p.length - 1) { dx += r.p[i + 1][0] - x; dz += r.p[i + 1][1] - z; }
+          const len = Math.hypot(dx, dz) || 1;
+          const nx = -dz / len, nz = dx / len;
+          const mx = x + nx * side * (r.w / 2 + 2.0);
+          const mz = z + nz * side * (r.w / 2 + 2.0);
+          if (twinAt(mx, mz, ri) && Math.hypot(mx, mz) < 560) run.push([mx, mz]);
+          else flush();
+        }
+        flush();
+      }
+    });
+    if (!geos.length) return;
+    const merged = mergeGeometries(geos.map((g) => g.toNonIndexed()), false);
+    const tex = grassTexture({
+      base: "#" + new THREE.Color(this.theme.green).getHexString(),
+      blade: "#" + new THREE.Color(this.theme.green).multiplyScalar(1.2).getHexString(),
+    });
+    const mesh = new THREE.Mesh(merged, new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide }));
+    mesh.receiveShadow = true;
+    this.group.add(mesh);
   }
 
   // ----------------------------------------------------- paris decorations
