@@ -4,7 +4,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import {
-  facadeTexture, houseWallTexture, roofTexture, flatRoofTexture,
+  facadeTexture, houseWallTexture, storefrontTexture, roofTexture, flatRoofTexture,
   asphaltTexture, sidewalkTexture, grassTexture, cloudTexture, glowTexture,
 } from "./textures.js";
 
@@ -150,6 +150,7 @@ export class WorldBuilder {
     await this.nextFrame();
 
     await this.buildBuildings(onProgress);
+    this.buildSigns();
     this.buildTrees();
     onProgress?.(0.9, "planting the trees");
     await this.nextFrame();
@@ -366,13 +367,42 @@ export class WorldBuilder {
     const tileW = (s) => (s.type === "house" ? 7 : 12.8);   // meters per texture tile, horizontally
     const tileH = (s) => (s.type === "house" ? 3.4 : 12.4); // vertically
 
-    // wall vertex buffers per style
+    // wall vertex buffers per style (+ one for storefront ground floors)
     const walls = styles.map(() => ({ pos: [], uv: [], col: [], idx: [], n: 0 }));
+    const shopBuf = { pos: [], uv: [], col: [], idx: [], n: 0 };
+    const sfCfg = theme.storefront;
+    let shopMat = null;
+    if (sfCfg) {
+      const pair = storefrontTexture(sfCfg);
+      shopMat = new THREE.MeshLambertMaterial({
+        map: pair.map, vertexColors: true, side: THREE.DoubleSide,
+      });
+      if (pair.emissive) {
+        shopMat.emissiveMap = pair.emissive;
+        shopMat.emissive = new THREE.Color(0xffffff);
+        shopMat.emissiveIntensity = 1.0;
+      }
+    }
 
     // roofs
     const roofCfg = theme.roof || { type: "flat", base: "#5c544c" };
-    const flatGeos = [], hipGeos = [];
+    const hipVariants = roofCfg.tiles || (roofCfg.tile ? [{ tile: roofCfg.tile, dark: roofCfg.dark }] : []);
+    const flatGeos = [];
+    const hipGeos = hipVariants.map(() => []);
+    const mansardCfg = theme.mansard;
+    const mansardBuf = { pos: [], uv: [], idx: [], n: 0 };
     const tint = new THREE.Color();
+
+    this.buildingList = []; // kept for storefront sign placement
+
+    const pushWallQuad = (buf, ax, az, bx, bz, y0, y1, u0, u1, v0, v1, t) => {
+      const base = buf.n;
+      buf.pos.push(ax, y0, az, bx, y0, bz, bx, y1, bz, ax, y1, az);
+      buf.uv.push(u0, v0, u1, v0, u1, v1, u0, v1);
+      for (let k = 0; k < 4; k++) buf.col.push(t.r, t.g, t.b);
+      buf.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+      buf.n += 4;
+    };
 
     let i = 0;
     for (const b of data.buildings) {
@@ -385,14 +415,15 @@ export class WorldBuilder {
 
       let pts = b.p;
       this.collisionPolys.push({ pts, bbox: polyBBox(pts), h: b.h });
-      // ensure consistent winding so wall normals face outward
       if (signedArea(pts) < 0) pts = pts.slice().reverse();
-
       const h = b.h;
+      const cat = b.c || "generic";
+      this.buildingList.push({ pts, h, cat });
+
       // style pick: deterministic, tall boston buildings lean glassy/modern
       let si;
-      if (data.key === "boston" && h > 17 && styles.length > 2) {
-        si = rng() < 0.72 ? 2 : Math.floor(rng() * styles.length);
+      if (data.key === "boston" && h > 17) {
+        si = rng() < 0.6 ? (rng() < 0.6 ? 2 : 5) : Math.floor(rng() * styles.length);
       } else {
         let roll = rng() * totalW;
         si = 0;
@@ -402,34 +433,43 @@ export class WorldBuilder {
       const style = styles[si];
       const buf = walls[si];
 
-      // near-white tint multiplied over the texture for per-building variety
-      const lum = 0.8 + rng() * 0.26;
+      // stronger per-building tint variety (warm/cool shifts, light/dark)
+      const lum = 0.74 + rng() * 0.32;
+      const warm = (rng() - 0.5) * 0.12;
       tint.setRGB(
-        Math.min(1, lum + (rng() - 0.5) * 0.07),
-        lum,
-        Math.min(1, lum + (rng() - 0.5) * 0.07)
+        Math.max(0.5, Math.min(1, lum + warm)),
+        Math.max(0.5, Math.min(1, lum)),
+        Math.max(0.5, Math.min(1, lum - warm))
       );
 
-      // walls: one quad per footprint edge, UVs in meters
+      // does this building get a ground-floor storefront band?
+      const sfChance = sfCfg?.chance?.[cat] ?? 0;
+      const hasShop = shopMat && h > (sfCfg.bandH + 2.6) && rng() < sfChance;
+      const bandH = hasShop ? sfCfg.bandH : 0;
+
+      // walls: one quad per footprint edge, UVs in meters.
+      // uPhase offsets the window columns per building so identical
+      // facades never line up across neighbors.
       const tw = tileW(style), th = tileH(style);
-      const vTop = h / th;
+      const uPhase = Math.floor(rng() * 4) * 0.25;
+      const vTop = (h - bandH) / th;
       for (let e = 0; e < pts.length; e++) {
         const [ax, az] = pts[e];
         const [bx, bz] = pts[(e + 1) % pts.length];
         const len = Math.hypot(bx - ax, bz - az);
         if (len < 0.4) continue;
-        const base = buf.n;
-        buf.pos.push(ax, 0, az, bx, 0, bz, bx, h, bz, ax, h, az);
-        const u1 = Math.max(0.999, Math.round(len / tw)); // whole window columns
-        buf.uv.push(0, 0, u1, 0, u1, vTop, 0, vTop);
-        for (let k = 0; k < 4; k++) buf.col.push(tint.r, tint.g, tint.b);
-        buf.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
-        buf.n += 4;
+        const u1 = Math.max(0.999, Math.round(len / tw));
+        pushWallQuad(buf, ax, az, bx, bz, bandH, h, uPhase, uPhase + u1, 0, vTop, tint);
+        if (hasShop) {
+          const su1 = Math.max(0.999, Math.round(len / 6.2)); // one shopfront ≈ 6 m
+          pushWallQuad(shopBuf, ax, az, bx, bz, 0, bandH, 0, su1, 0, 1, tint);
+        }
       }
 
       // roof
       const area = Math.abs(signedArea(pts));
-      const useHip = roofCfg.type === "hip" && area < roofCfg.maxArea && pts.length <= 9 && h < 12;
+      const useHip = hipVariants.length && roofCfg.type === "hip" && area < roofCfg.maxArea && pts.length <= 9 && h < 12;
+      const useMansard = mansardCfg && h >= mansardCfg.minH && pts.length <= 14 && area > 60;
       try {
         if (useHip) {
           const [cx, cz] = centroidOf(pts);
@@ -448,7 +488,29 @@ export class WorldBuilder {
           g.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(uv), 2));
           g.setIndex(idx);
           g.computeVertexNormals();
-          hipGeos.push(g);
+          hipGeos[Math.floor(rng() * hipVariants.length)].push(g);
+        } else if (useMansard) {
+          // Haussmann: sloped zinc band from the wall top to an inset cap
+          const [cx, cz] = centroidOf(pts);
+          let avgR = 0;
+          for (const [x, z] of pts) avgR += Math.hypot(x - cx, z - cz);
+          avgR /= pts.length;
+          const k = Math.max(0.55, Math.min(0.94, 1 - mansardCfg.inset / Math.max(3, avgR)));
+          const topY = h + mansardCfg.rise;
+          const inset = pts.map(([x, z]) => [cx + (x - cx) * k, cz + (z - cz) * k]);
+          for (let e = 0; e < pts.length; e++) {
+            const [ax, az] = pts[e];
+            const [bx, bz] = pts[(e + 1) % pts.length];
+            const [iax, iaz] = inset[e];
+            const [ibx, ibz] = inset[(e + 1) % pts.length];
+            const base = mansardBuf.n;
+            mansardBuf.pos.push(ax, h, az, bx, h, bz, ibx, topY, ibz, iax, topY, iaz);
+            const len = Math.hypot(bx - ax, bz - az);
+            mansardBuf.uv.push(0, 0, len / 3, 0, len / 3, 1, 0, 1);
+            mansardBuf.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+            mansardBuf.n += 4;
+          }
+          flatGeos.push(flatPolyGeometry(inset, topY, 4));
         } else {
           flatGeos.push(flatPolyGeometry(pts, h, 4));
         }
@@ -456,19 +518,27 @@ export class WorldBuilder {
     }
 
     // assemble wall meshes (one per facade style — a handful of draw calls)
-    walls.forEach((buf, si) => {
+    const buildBufMesh = (buf, mat) => {
       if (!buf.n) return;
       const g = new THREE.BufferGeometry();
       g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(buf.pos), 3));
       g.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(buf.uv), 2));
-      g.setAttribute("color", new THREE.BufferAttribute(new Float32Array(buf.col), 3));
+      if (buf.col) g.setAttribute("color", new THREE.BufferAttribute(new Float32Array(buf.col), 3));
       g.setIndex(buf.idx);
       g.computeVertexNormals();
-      const mesh = new THREE.Mesh(g, styleMats[si]);
+      const mesh = new THREE.Mesh(g, mat);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       this.group.add(mesh);
-    });
+    };
+    walls.forEach((buf, si) => buildBufMesh(buf, styleMats[si]));
+    if (shopMat) buildBufMesh(shopBuf, shopMat);
+    if (mansardBuf.n && mansardCfg) {
+      buildBufMesh(
+        { ...mansardBuf, col: null },
+        new THREE.MeshLambertMaterial({ color: mansardCfg.color, side: THREE.DoubleSide })
+      );
+    }
 
     if (flatGeos.length) {
       const merged = mergeGeometries(flatGeos.map((g) => g.toNonIndexed()), false);
@@ -479,14 +549,113 @@ export class WorldBuilder {
       mesh.receiveShadow = true;
       this.group.add(mesh);
     }
-    if (hipGeos.length) {
-      const merged = mergeGeometries(hipGeos.map((g) => g.toNonIndexed()), false);
+    hipGeos.forEach((geos, vi) => {
+      if (!geos.length) return;
+      const merged = mergeGeometries(geos.map((g) => g.toNonIndexed()), false);
       const mesh = new THREE.Mesh(merged, new THREE.MeshLambertMaterial({
-        map: roofTexture({ tile: roofCfg.tile, dark: roofCfg.dark }),
+        map: roofTexture({ tile: hipVariants[vi].tile, dark: hipVariants[vi].dark, seed: 5 + vi * 7 }),
       }));
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       this.group.add(mesh);
+    });
+  }
+
+  // ---------------------------------------------------- real shop signs
+  // Every named café/shop/restaurant from the real map gets a sign on the
+  // nearest building wall — Cava really is next door.
+  buildSigns() {
+    const pois = this.data.pois || [];
+    if (!pois.length || !this.buildingList?.length) return;
+    const { rng } = this;
+    const awningColors = (this.theme.storefront?.awningColors ||
+      ["#a8443c", "#3e6048", "#44587a", "#8a6a34"]).map((c) => new THREE.Color(c));
+    const night = !!this.theme.night;
+    const usedEdges = new Set();
+    let placed = 0;
+
+    for (const poi of pois) {
+      if (placed >= 110) break;
+      // nearest building edge within 30 m
+      let best = null;
+      for (let bi = 0; bi < this.buildingList.length; bi++) {
+        const b = this.buildingList[bi];
+        const bb = polyBBox(b.pts);
+        if (poi.x < bb.minX - 32 || poi.x > bb.maxX + 32 || poi.z < bb.minZ - 32 || poi.z > bb.maxZ + 32) continue;
+        for (let e = 0; e < b.pts.length; e++) {
+          const [ax, az] = b.pts[e];
+          const [bx, bz] = b.pts[(e + 1) % b.pts.length];
+          const dx = bx - ax, dz = bz - az;
+          const len2 = dx * dx + dz * dz;
+          if (len2 < 16) continue; // wall shorter than the sign
+          let t = ((poi.x - ax) * dx + (poi.z - az) * dz) / len2;
+          t = Math.max(0.15, Math.min(0.85, t));
+          const px = ax + dx * t, pz = az + dz * t;
+          const d = Math.hypot(poi.x - px, poi.z - pz);
+          if (d < 30 && (!best || d < best.d)) {
+            best = { d, px, pz, dx, dz, len: Math.sqrt(len2), bi, e, h: b.h };
+          }
+        }
+      }
+      if (!best) continue;
+      const edgeKey = `${best.bi}:${best.e}:${Math.round(best.px / 8)}`;
+      if (usedEdges.has(edgeKey)) continue;
+      usedEdges.add(edgeKey);
+
+      // outward normal (winding was normalized in buildBuildings)
+      let nx = best.dz / best.len, nz = -best.dx / best.len;
+      // make sure it points away from the building center
+      const bld = this.buildingList[best.bi];
+      const [bcx, bcz] = centroidOf(bld.pts);
+      if ((best.px + nx - bcx) ** 2 + (best.pz + nz - bcz) ** 2 < (best.px - bcx) ** 2 + (best.pz - bcz) ** 2) {
+        nx = -nx; nz = -nz;
+      }
+
+      // sign board with the real name
+      const canvas = document.createElement("canvas");
+      const font = "600 34px 'Avenir Next', system-ui";
+      const mctx = canvas.getContext("2d");
+      mctx.font = font;
+      const tw = Math.ceil(mctx.measureText(poi.n).width);
+      const W = Math.min(560, tw + 44), H = 62;
+      canvas.width = W; canvas.height = H;
+      const ctx = canvas.getContext("2d");
+      const bgColors = ["#28201c", "#3a2226", "#1e2c30", "#2c2418", "#222032"];
+      ctx.fillStyle = bgColors[Math.floor(rng() * bgColors.length)];
+      ctx.fillRect(0, 0, W, H);
+      ctx.strokeStyle = "rgba(255,235,200,0.65)";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(3, 3, W - 6, H - 6);
+      ctx.font = font;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = night ? "#ffd9a0" : "#f6ead8";
+      ctx.fillText(poi.n, W / 2, H / 2 + 1, W - 30);
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = 8;
+
+      const sw = Math.min(5.2, (W / H) * 0.62);
+      const sign = new THREE.Mesh(
+        new THREE.PlaneGeometry(sw, 0.62),
+        new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, toneMapped: !night })
+      );
+      const signY = Math.min(3.45, Math.max(2.7, best.h - 0.8));
+      sign.position.set(best.px + nx * 0.3, signY, best.pz + nz * 0.3);
+      sign.lookAt(best.px + nx * 10, signY, best.pz + nz * 10);
+      this.group.add(sign);
+
+      // awning below the sign
+      const aw = new THREE.Mesh(
+        new THREE.BoxGeometry(Math.min(4.6, sw + 0.8), 0.07, 1.15),
+        new THREE.MeshLambertMaterial({ color: awningColors[Math.floor(rng() * awningColors.length)] })
+      );
+      aw.position.set(best.px + nx * 0.75, signY - 0.55, best.pz + nz * 0.75);
+      aw.lookAt(best.px + nx * 10, signY - 0.55 - 3.4, best.pz + nz * 10);
+      aw.castShadow = true;
+      this.group.add(aw);
+
+      placed++;
     }
   }
 

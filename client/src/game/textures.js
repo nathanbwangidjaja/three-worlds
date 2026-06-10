@@ -157,6 +157,100 @@ export function facadeTexture({
   return { map: finish(c), emissive: lit > 0 ? finish(ec) : null };
 }
 
+// ground-floor storefront band: big glass windows, doors, sign boards and
+// awnings in varied colors. One tile = 2 shopfronts (~12 m).
+export function storefrontTexture({
+  wall = "#5a5048",
+  signColors = ["#7a3a36", "#2e4a5e", "#3a5a3c", "#6e5430", "#52384e"],
+  awningColors = ["#a8443c", "#3e6048", "#44587a", "#8a6a34"],
+  glassTop = "#cfe0e8",
+  glassBottom = "#3c4a54",
+  night = false,
+  seed = 51,
+} = {}) {
+  const S = 512, H = 256;
+  const [c, ctx] = canvas(S, H);
+  const [ec, ectx] = canvas(S, H);
+  const rnd = rngFactory(seed);
+
+  ctx.fillStyle = wall;
+  ctx.fillRect(0, 0, S, H);
+  ectx.fillStyle = "#000";
+  ectx.fillRect(0, 0, S, H);
+  for (let i = 0; i < 900; i++) {
+    const v = (rnd() - 0.5) * 0.1;
+    ctx.fillStyle = v > 0 ? `rgba(255,255,255,${v})` : `rgba(0,0,0,${-v})`;
+    ctx.fillRect(rnd() * S, rnd() * H, 2, 3);
+  }
+
+  // two shopfronts per tile
+  for (let s = 0; s < 2; s++) {
+    const x0 = s * S / 2;
+    const w = S / 2;
+    // sign band
+    const sign = signColors[Math.floor(rnd() * signColors.length)];
+    ctx.fillStyle = sign;
+    ctx.fillRect(x0 + 8, 18, w - 16, 42);
+    ctx.fillStyle = "rgba(255,245,225,0.85)";
+    // fake lettering blocks
+    let lx = x0 + 26;
+    while (lx < x0 + w - 40) {
+      const lw = 8 + rnd() * 22;
+      ctx.fillRect(lx, 32, lw, 13);
+      lx += lw + 9;
+    }
+    if (night) {
+      ectx.fillStyle = "rgba(255,220,160,0.7)";
+      ectx.fillRect(x0 + 8, 18, w - 16, 42);
+    }
+
+    // awning (striped)
+    const aw = awningColors[Math.floor(rnd() * awningColors.length)];
+    ctx.fillStyle = aw;
+    ctx.fillRect(x0 + 4, 62, w - 8, 26);
+    ctx.fillStyle = "rgba(255,255,255,0.3)";
+    for (let st = x0 + 4; st < x0 + w - 8; st += 22) ctx.fillRect(st, 62, 11, 26);
+    ctx.fillStyle = "rgba(0,0,0,0.25)";
+    ctx.fillRect(x0 + 4, 84, w - 8, 4);
+
+    // big glass window + door
+    const gy = 96, gh = H - gy - 14;
+    ctx.fillStyle = "rgba(0,0,0,0.4)";
+    ctx.fillRect(x0 + 10, gy - 3, w - 20, gh + 8);
+    const g = ctx.createLinearGradient(0, gy, 0, gy + gh);
+    if (night) {
+      g.addColorStop(0, "#ffe2ae");
+      g.addColorStop(1, "#c98e4e");
+    } else {
+      g.addColorStop(0, glassTop);
+      g.addColorStop(1, glassBottom);
+    }
+    ctx.fillStyle = g;
+    ctx.fillRect(x0 + 12, gy, w - 24, gh);
+    if (night) {
+      const eg = ectx.createLinearGradient(0, gy, 0, gy + gh);
+      eg.addColorStop(0, "#e8c084");
+      eg.addColorStop(1, "#9a6a36");
+      ectx.fillStyle = eg;
+      ectx.fillRect(x0 + 12, gy, w - 24, gh);
+    }
+    // mullions + door
+    ctx.strokeStyle = "rgba(25,22,20,0.9)";
+    ctx.lineWidth = 4;
+    ctx.strokeRect(x0 + 12, gy, w - 24, gh);
+    ctx.beginPath();
+    ctx.moveTo(x0 + 12 + (w - 24) * 0.62, gy);
+    ctx.lineTo(x0 + 12 + (w - 24) * 0.62, gy + gh);
+    ctx.stroke();
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(x0 + 12, gy + gh * 0.5);
+    ctx.lineTo(x0 + 12 + (w - 24) * 0.62, gy + gh * 0.5);
+    ctx.stroke();
+  }
+  return { map: finish(c), emissive: night ? finish(ec) : null };
+}
+
 // plaster wall with door + small windows + base trim (tropical homes).
 // One tile ≈ one story of a small house.
 export function houseWallTexture({ base = "#ece2cc", trim = "#b8a888", seed = 3 } = {}) {

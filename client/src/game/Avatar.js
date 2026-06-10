@@ -90,7 +90,7 @@ export class Avatar {
       const eye = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 6), lambert(0x1a1416));
       eye.position.set(ex, 0.32, 0.3);
       head.add(eye);
-      const shine = new THREE.Mesh(new THREE.SphereGeometry(0.015, 4, 4), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+      const shine = new THREE.Mesh(new THREE.SphereGeometry(0.013, 4, 4), new THREE.MeshLambertMaterial({ color: 0xd8d8d8 }));
       shine.position.set(ex + 0.015, 0.345, 0.337);
       head.add(shine);
     }

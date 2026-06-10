@@ -130,15 +130,29 @@ function stitchRings(members) {
   return rings;
 }
 
-function buildingHeight(tags, cityKey) {
+function buildingHeight(tags, cityKey, jitter) {
   const h = parseFloat(tags["height"]);
   if (!isNaN(h)) return Math.min(h, 120);
   const levels = parseFloat(tags["building:levels"]);
   if (!isNaN(levels)) return Math.max(3.2, levels * 3.1 + 1.5);
-  // sensible defaults per city
-  if (cityKey === "paris") return 19;
-  if (cityKey === "tangerang") return 4.5;
-  return 11; // boston/cambridge mix
+  // sensible defaults per city, jittered so unheighted rows don't look stamped
+  if (cityKey === "paris") return 16 + jitter * 8;        // 16–24
+  if (cityKey === "tangerang") return jitter < 0.75 ? 3.8 + jitter * 1.6 : 6.4 + jitter * 1.4; // mostly 1-story, some 2
+  return 8 + jitter * 9; // boston/cambridge mix 8–17
+}
+
+// simplified building category the client styles around
+function buildingCategory(tags) {
+  const b = tags["building"] || "";
+  if (/^(retail|commercial|supermarket|kiosk|shop)$/.test(b)) return "retail";
+  if (/^(apartments|residential|dormitory)$/.test(b)) return "apartments";
+  if (/^(house|detached|terrace|semidetached_house|bungalow)$/.test(b)) return "house";
+  if (/^(office)$/.test(b)) return "office";
+  if (/^(university|college|school)$/.test(b)) return "school";
+  if (/^(church|cathedral|mosque|chapel|temple)$/.test(b)) return "worship";
+  if (/^(industrial|warehouse|garage|garages|shed|roof|carport)$/.test(b)) return "utility";
+  if (tags["shop"] || tags["amenity"] === "restaurant" || tags["amenity"] === "cafe") return "retail";
+  return "generic";
 }
 
 const ROAD_WIDTHS = {
@@ -184,6 +198,17 @@ async function fetchCity(key) {
   console.log("  fetching trees...");
   const tQ = `[out:json][timeout:60];(node["natural"="tree"]${around};);out;`;
   const tRes = await overpass(tQ);
+  await sleep(2500);
+
+  // 6. named places — shops, cafés, restaurants (real names for storefronts!)
+  console.log("  fetching named places...");
+  const pQ = `[out:json][timeout:60];(
+    node["name"]["shop"]${around};
+    node["name"]["amenity"~"^(restaurant|cafe|fast_food|bar|pub|bakery|ice_cream|pharmacy|bank|cinema|theatre|library)$"]${around};
+    way["name"]["shop"]${around};
+    way["name"]["amenity"~"^(restaurant|cafe|fast_food|bar|pub|bakery|ice_cream|pharmacy|bank|cinema|theatre)$"]${around};
+  );out tags center;`;
+  const pRes = await overpass(pQ);
 
   // ---- bake ----
   const out = {
@@ -196,6 +221,7 @@ async function fetchCity(key) {
     water: [],
     green: [],
     trees: [],
+    pois: [],
   };
 
   const inRange = (pts, slack = 250) =>
@@ -219,13 +245,17 @@ async function fetchCity(key) {
       }
       if (pts.length < 3 || !inRange(pts)) continue;
       if (ringArea(pts) < 12) continue;
-      const b = { p: pts, h: Math.round(buildingHeight(tags, key) * 10) / 10 };
+      // deterministic per-building jitter from footprint position
+      const [c0x, c0z] = centroid(pts);
+      const jitter = (Math.abs(Math.sin(c0x * 12.9898 + c0z * 78.233)) * 43758.5453) % 1;
+      const b = {
+        p: pts,
+        h: Math.round(buildingHeight(tags, key, jitter) * 10) / 10,
+        c: buildingCategory(tags),
+      };
       const name = tags["name"];
       if (name) b.n = name;
       if (tags["building"] === "tower" || /tour eiffel/i.test(name || "")) b.tower = true;
-      if (/^(church|cathedral|mosque|chapel|temple)$/.test(tags["building"] || "")) b.kind = "worship";
-      if (/^(university|college|school)$/.test(tags["building"] || "")) b.kind = "school";
-      if (/^(house|detached|residential|apartments|terrace)$/.test(tags["building"] || "")) b.kind = "home";
       out.buildings.push(b);
     }
   }
@@ -279,6 +309,24 @@ async function fetchCity(key) {
     }
   }
 
+  // named places → storefront signs
+  for (const el of pRes.elements) {
+    const tags = el.tags || {};
+    const lat0 = el.lat ?? el.center?.lat;
+    const lon0 = el.lon ?? el.center?.lon;
+    if (lat0 == null || !tags.name) continue;
+    const [x, z] = proj(lat0, lon0);
+    if (Math.hypot(x, z) > radius + 50) continue;
+    out.pois.push({
+      x, z,
+      n: tags.name.slice(0, 28),
+      t: tags.amenity || tags.shop || "shop",
+    });
+  }
+  // closest first, cap so signs stay special
+  out.pois.sort((a, b) => (a.x * a.x + a.z * a.z) - (b.x * b.x + b.z * b.z));
+  out.pois = out.pois.slice(0, 140);
+
   // trees (sample down if huge)
   let trees = tRes.elements
     .map((n) => proj(n.lat, n.lon))
@@ -291,7 +339,7 @@ async function fetchCity(key) {
 
   console.log(
     `  baked: ${out.buildings.length} buildings, ${out.roads.length} roads, ` +
-    `${out.water.length} water, ${out.green.length} green, ${out.trees.length} trees`
+    `${out.water.length} water, ${out.green.length} green, ${out.trees.length} trees, ${out.pois.length} pois`
   );
 
   fs.mkdirSync(OUT_DIR, { recursive: true });
