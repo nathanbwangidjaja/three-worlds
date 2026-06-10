@@ -6,7 +6,17 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import {
   facadeTexture, houseWallTexture, storefrontTexture, roofTexture, flatRoofTexture,
   asphaltTexture, sidewalkTexture, grassTexture, cloudTexture, glowTexture,
+  panelGridTexture, curtainWallTexture, ribbonBandTexture, garageTexture,
 } from "./textures.js";
+import { TUNING, STYLE_DEFS } from "./cityTuning.js";
+
+const TEXTURE_FACTORIES = {
+  facade: facadeTexture,
+  panel: panelGridTexture,
+  curtain: curtainWallTexture,
+  ribbon: ribbonBandTexture,
+  garage: garageTexture,
+};
 
 // deterministic rng so both players see the identical world
 function mulberry32(seed) {
@@ -369,6 +379,36 @@ export class WorldBuilder {
 
     // wall vertex buffers per style (+ one for storefront ground floors)
     const walls = styles.map(() => ({ pos: [], uv: [], col: [], idx: [], n: 0 }));
+
+    // hand-tuned per-building styles (matched by real OSM name)
+    const tuningRules = TUNING[data.key] || [];
+    const tunedMats = {};   // styleKey -> material (lazy)
+    const tunedWalls = {};  // styleKey -> buffer
+    this.tunedBuildings = [];
+    const matchTuning = (name) => {
+      if (!name) return null;
+      for (const rule of tuningRules) {
+        if (typeof rule.match === "string" ? name === rule.match : rule.match.test(name)) return rule;
+      }
+      return null;
+    };
+    const tunedBufferFor = (styleKey) => {
+      if (!tunedWalls[styleKey]) {
+        tunedWalls[styleKey] = { pos: [], uv: [], col: [], idx: [], n: 0 };
+        const def = STYLE_DEFS[styleKey];
+        const pair = TEXTURE_FACTORIES[def.factory]({ ...def.opts, lit: theme.night ? (def.opts.lit ?? 0.35) : 0 });
+        const mat = new THREE.MeshLambertMaterial({
+          map: pair.map, vertexColors: true, side: THREE.DoubleSide,
+        });
+        if (pair.emissive) {
+          mat.emissiveMap = pair.emissive;
+          mat.emissive = new THREE.Color(0xffffff);
+          mat.emissiveIntensity = 1.1;
+        }
+        tunedMats[styleKey] = mat;
+      }
+      return tunedWalls[styleKey];
+    };
     const shopBuf = { pos: [], uv: [], col: [], idx: [], n: 0 };
     const sfCfg = theme.storefront;
     let shopMat = null;
@@ -420,31 +460,47 @@ export class WorldBuilder {
       const cat = b.c || "generic";
       this.buildingList.push({ pts, h, cat });
 
-      // style pick: deterministic, tall boston buildings lean glassy/modern
-      let si;
-      if (data.key === "boston" && h > 17) {
-        si = rng() < 0.6 ? (rng() < 0.6 ? 2 : 5) : Math.floor(rng() * styles.length);
+      // hand-tuned building? route to its custom architectural style
+      const rule = matchTuning(b.n);
+      let style, buf, tuned = null;
+      if (rule) {
+        tuned = STYLE_DEFS[rule.style];
+        buf = tunedBufferFor(rule.style);
+        style = { type: "facade" }; // tile scale: standard 12.8m × 12.4m grid
+        this.tunedBuildings.push({ name: b.n, style: rule.style });
       } else {
-        let roll = rng() * totalW;
-        si = 0;
-        while (roll > weights[si]) { roll -= weights[si]; si++; }
-        si = Math.min(si, styles.length - 1);
+        // style pick: deterministic, tall boston buildings lean glassy/modern
+        let si;
+        if (data.key === "boston" && h > 17) {
+          si = rng() < 0.6 ? (rng() < 0.6 ? 2 : 5) : Math.floor(rng() * styles.length);
+        } else {
+          let roll = rng() * totalW;
+          si = 0;
+          while (roll > weights[si]) { roll -= weights[si]; si++; }
+          si = Math.min(si, styles.length - 1);
+        }
+        style = styles[si];
+        buf = walls[si];
       }
-      const style = styles[si];
-      const buf = walls[si];
 
-      // stronger per-building tint variety (warm/cool shifts, light/dark)
-      const lum = 0.74 + rng() * 0.32;
-      const warm = (rng() - 0.5) * 0.12;
-      tint.setRGB(
-        Math.max(0.5, Math.min(1, lum + warm)),
-        Math.max(0.5, Math.min(1, lum)),
-        Math.max(0.5, Math.min(1, lum - warm))
-      );
+      // stronger per-building tint variety (warm/cool shifts, light/dark);
+      // tuned buildings keep their hand-picked colors nearly untinted
+      if (tuned) {
+        tint.setRGB(1, 1, 1);
+        rng(); rng(); // keep the rng sequence identical for untuned neighbors
+      } else {
+        const lum = 0.74 + rng() * 0.32;
+        const warm = (rng() - 0.5) * 0.12;
+        tint.setRGB(
+          Math.max(0.5, Math.min(1, lum + warm)),
+          Math.max(0.5, Math.min(1, lum)),
+          Math.max(0.5, Math.min(1, lum - warm))
+        );
+      }
 
       // does this building get a ground-floor storefront band?
-      const sfChance = sfCfg?.chance?.[cat] ?? 0;
-      const hasShop = shopMat && h > (sfCfg.bandH + 2.6) && rng() < sfChance;
+      const sfChance = tuned ? (tuned.storefront ? 1 : 0) : (sfCfg?.chance?.[cat] ?? 0);
+      const hasShop = shopMat && sfCfg && h > (sfCfg.bandH + 2.6) && rng() < sfChance;
       const bandH = hasShop ? sfCfg.bandH : 0;
 
       // walls: one quad per footprint edge, UVs in meters.
@@ -532,6 +588,9 @@ export class WorldBuilder {
       this.group.add(mesh);
     };
     walls.forEach((buf, si) => buildBufMesh(buf, styleMats[si]));
+    for (const styleKey of Object.keys(tunedWalls)) {
+      buildBufMesh(tunedWalls[styleKey], tunedMats[styleKey]);
+    }
     if (shopMat) buildBufMesh(shopBuf, shopMat);
     if (mansardBuf.n && mansardCfg) {
       buildBufMesh(

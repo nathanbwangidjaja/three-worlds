@@ -290,6 +290,229 @@ export function houseWallTexture({ base = "#ece2cc", trim = "#b8a888", seed = 3 
   return { map: finish(c), emissive: null };
 }
 
+// --------------------------------------------------- architectural styles
+// modern panel grid: precast vertical piers + glass + dark spandrel bands
+// (Proto, Tech Square, gray residential towers)
+export function panelGridTexture({
+  panel = "#d8d8d2",
+  pier = "#c8c8c0",
+  spandrel = "#3a3f45",
+  glassTop = "#b8ccd8",
+  glassBottom = "#46606e",
+  pierWidth = 0.16,          // fraction of each bay that is solid pier
+  accent = null,             // e.g. bronze stripe color
+  lit = 0,
+  seed = 101,
+} = {}) {
+  const S = 512;
+  const [c, ctx] = canvas(S, S);
+  const [ec, ectx] = canvas(S, S);
+  const rnd = rngFactory(seed);
+  ctx.fillStyle = panel;
+  ctx.fillRect(0, 0, S, S);
+  ectx.fillStyle = "#000";
+  ectx.fillRect(0, 0, S, S);
+  for (let i = 0; i < 1500; i++) {
+    const v = (rnd() - 0.5) * 0.06;
+    ctx.fillStyle = v > 0 ? `rgba(255,255,255,${v})` : `rgba(0,0,0,${-v})`;
+    ctx.fillRect(rnd() * S, rnd() * S, 2, 3);
+  }
+  const COLS = 4, ROWS = 4;
+  const cw = S / COLS, rh = S / ROWS;
+  const pw = cw * pierWidth;
+  for (let col = 0; col < COLS; col++) {
+    // pier stripes
+    ctx.fillStyle = pier;
+    ctx.fillRect(col * cw, 0, pw / 2, S);
+    ctx.fillRect((col + 1) * cw - pw / 2, 0, pw / 2, S);
+    ctx.fillStyle = "rgba(0,0,0,0.12)";
+    ctx.fillRect(col * cw + pw / 2 - 2, 0, 2, S);
+    ctx.fillRect((col + 1) * cw - pw / 2, 0, 2, S);
+    if (accent && col % 2 === 1) {
+      ctx.fillStyle = accent;
+      ctx.fillRect(col * cw + pw / 2 - 6, 0, 4, S);
+    }
+    for (let row = 0; row < ROWS; row++) {
+      const x = col * cw + pw / 2 + 3;
+      const w = cw - pw - 6;
+      const y = row * rh;
+      // spandrel band
+      ctx.fillStyle = spandrel;
+      ctx.fillRect(x, y + rh * 0.74, w, rh * 0.26);
+      // window
+      const wy = y + rh * 0.06, wh = rh * 0.64;
+      const isLit = rnd() < lit;
+      const g = ctx.createLinearGradient(0, wy, 0, wy + wh);
+      if (isLit) { g.addColorStop(0, "#ffeec2"); g.addColorStop(1, "#f0b066"); }
+      else { g.addColorStop(0, glassTop); g.addColorStop(1, glassBottom); }
+      ctx.fillStyle = g;
+      ctx.fillRect(x, wy, w, wh);
+      if (isLit) {
+        ectx.fillStyle = "#f4c684";
+        ectx.fillRect(x, wy, w, wh);
+      }
+      ctx.strokeStyle = "rgba(20,24,28,0.85)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, wy, w, wh);
+      ctx.beginPath();
+      ctx.moveTo(x + w / 2, wy); ctx.lineTo(x + w / 2, wy + wh);
+      ctx.stroke();
+    }
+  }
+  return { map: finish(c), emissive: lit > 0 ? finish(ec) : null };
+}
+
+// full glass curtain wall with fine mullion grid + sky reflection streaks
+export function curtainWallTexture({
+  glassTop = "#a8c8da",
+  glassBottom = "#3c5868",
+  mullion = "rgba(30,38,44,0.9)",
+  tintBands = true,
+  lit = 0,
+  seed = 113,
+} = {}) {
+  const S = 512;
+  const [c, ctx] = canvas(S, S);
+  const [ec, ectx] = canvas(S, S);
+  const rnd = rngFactory(seed);
+  const g = ctx.createLinearGradient(0, 0, 0, S);
+  g.addColorStop(0, glassTop);
+  g.addColorStop(1, glassBottom);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, S, S);
+  ectx.fillStyle = "#000";
+  ectx.fillRect(0, 0, S, S);
+  // diagonal sky reflections
+  if (tintBands) {
+    ctx.save();
+    ctx.globalAlpha = 0.16;
+    ctx.fillStyle = "#ffffff";
+    for (let i = 0; i < 5; i++) {
+      const x = rnd() * S;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x + 90, 0);
+      ctx.lineTo(x - 60, S);
+      ctx.lineTo(x - 150, S);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+  const ROWS = 4, COLS = 8;
+  const rh = S / ROWS, cw = S / COLS;
+  for (let row = 0; row <= ROWS; row++) {
+    ctx.fillStyle = mullion;
+    ctx.fillRect(0, row * rh - 2.5, S, 5);
+    // spandrel shadow under each floor line
+    ctx.fillStyle = "rgba(15,20,25,0.32)";
+    ctx.fillRect(0, row * rh - 12, S, 10);
+  }
+  for (let col = 0; col <= COLS; col++) {
+    ctx.fillStyle = mullion;
+    ctx.fillRect(col * cw - 1.5, 0, 3, S);
+  }
+  // some lit offices
+  if (lit > 0) {
+    for (let row = 0; row < ROWS; row++) {
+      for (let col = 0; col < COLS; col++) {
+        if (rnd() < lit) {
+          const eg = ectx.createLinearGradient(0, row * rh, 0, (row + 1) * rh);
+          eg.addColorStop(0, "#f8d294");
+          eg.addColorStop(1, "#c08a4a");
+          ectx.fillStyle = eg;
+          ectx.fillRect(col * cw + 2, row * rh + 3, cw - 4, rh - 14);
+          ctx.fillStyle = "rgba(255,220,150,0.55)";
+          ctx.fillRect(col * cw + 2, row * rh + 3, cw - 4, rh - 14);
+        }
+      }
+    }
+  }
+  return { map: finish(c), emissive: lit > 0 ? finish(ec) : null };
+}
+
+// horizontal ribbon bands: precast strips alternating with window strips
+// (Merkin/Broad, Whitehead, lab buildings)
+export function ribbonBandTexture({
+  band = "#9a8870",
+  bandDark = "rgba(0,0,0,0.18)",
+  glassTop = "#9cb4c2",
+  glassBottom = "#3a4e58",
+  bandRatio = 0.42,
+  seed = 127,
+} = {}) {
+  const S = 512;
+  const [c, ctx] = canvas(S, S);
+  const rnd = rngFactory(seed);
+  ctx.fillStyle = band;
+  ctx.fillRect(0, 0, S, S);
+  for (let i = 0; i < 2200; i++) {
+    const v = (rnd() - 0.5) * 0.1;
+    ctx.fillStyle = v > 0 ? `rgba(255,255,255,${v})` : `rgba(0,0,0,${-v})`;
+    ctx.fillRect(rnd() * S, rnd() * S, 2, 2);
+  }
+  const ROWS = 4;
+  const rh = S / ROWS;
+  for (let row = 0; row < ROWS; row++) {
+    const gy = row * rh, gh = rh * (1 - bandRatio);
+    const g = ctx.createLinearGradient(0, gy, 0, gy + gh);
+    g.addColorStop(0, glassTop);
+    g.addColorStop(1, glassBottom);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, gy, S, gh);
+    // window verticals
+    ctx.strokeStyle = "rgba(25,30,34,0.7)";
+    ctx.lineWidth = 2;
+    for (let x = 0; x < S; x += S / 14) {
+      ctx.beginPath(); ctx.moveTo(x, gy); ctx.lineTo(x, gy + gh); ctx.stroke();
+    }
+    // band shadows
+    ctx.fillStyle = bandDark;
+    ctx.fillRect(0, gy + gh, S, 4);
+    ctx.fillStyle = "rgba(255,255,255,0.14)";
+    ctx.fillRect(0, gy + gh + 4, S, 3);
+  }
+  return { map: finish(c), emissive: null };
+}
+
+// parking garage: open horizontal slots with thin slat lines + columns
+export function garageTexture({ base = "#9aa0a2", slot = "#23282c", seed = 131 } = {}) {
+  const S = 512;
+  const [c, ctx] = canvas(S, S);
+  const rnd = rngFactory(seed);
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, S, S);
+  for (let i = 0; i < 1500; i++) {
+    const v = (rnd() - 0.5) * 0.08;
+    ctx.fillStyle = v > 0 ? `rgba(255,255,255,${v})` : `rgba(0,0,0,${-v})`;
+    ctx.fillRect(rnd() * S, rnd() * S, 2, 2);
+  }
+  const ROWS = 4;
+  const rh = S / ROWS;
+  for (let row = 0; row < ROWS; row++) {
+    const gy = row * rh + rh * 0.16, gh = rh * 0.52;
+    ctx.fillStyle = slot;
+    ctx.fillRect(0, gy, S, gh);
+    // slat lines
+    ctx.strokeStyle = "rgba(160,166,168,0.5)";
+    ctx.lineWidth = 2;
+    for (let y = gy + 6; y < gy + gh; y += 9) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(S, y); ctx.stroke();
+    }
+    // edge highlight
+    ctx.fillStyle = "rgba(255,255,255,0.2)";
+    ctx.fillRect(0, gy + gh, S, 4);
+  }
+  // columns
+  for (let x = 0; x < S; x += S / 4) {
+    ctx.fillStyle = base;
+    ctx.fillRect(x - 7, 0, 14, S);
+    ctx.fillStyle = "rgba(0,0,0,0.15)";
+    ctx.fillRect(x + 5, 0, 3, S);
+  }
+  return { map: finish(c), emissive: null };
+}
+
 // ------------------------------------------------------------------ roofs
 export function roofTexture({ tile = "#a8503a", dark = "#7e3826", rows = 16, seed = 5 } = {}) {
   const S = 256;
