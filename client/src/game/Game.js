@@ -179,7 +179,14 @@ export class Game {
     if (to === this.worldKey) return;
     UI.fadeIn(`✈️ flying to ${THEMES[to].title}…`);
     await new Promise((r) => setTimeout(r, 750));
-    await this.loadWorld(to);
+    try {
+      await this.loadWorld(to);
+    } catch (err) {
+      console.error("[game] travel failed:", err);
+      UI.fadeIn(`💔 couldn't load ${THEMES[to].title} — ${String(err.message || err)}`);
+      setTimeout(() => UI.fadeOut(), 4000);
+      return;
+    }
     UI.fadeOut();
   }
 
