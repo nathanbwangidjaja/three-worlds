@@ -7,6 +7,7 @@ import { Controls } from "./Controls.js";
 import { Effects } from "./Effects.js";
 import {
   buildEiffelTower, buildTowerSparkles, buildHomeMarker, buildPortal, buildBench, buildPicnic,
+  buildGatehouse,
 } from "./landmarks.js";
 import { RealWorld, PHOTOREAL_AVAILABLE, CITY_COORDS } from "./RealWorld.js";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
@@ -259,9 +260,11 @@ export class Game {
     if (theme.night) {
       this.bloom.strength = 0.75;
       this.bloom.threshold = 0.5;
+      this.avatarLight.intensity = 30;
     } else {
       this.bloom.strength = 0.28;
       this.bloom.threshold = 0.88;
+      this.avatarLight.intensity = 9; // daylight: just a gentle fill
     }
 
     this._setupExtras(key, data);
@@ -372,6 +375,11 @@ export class Game {
       const home = STORY.homes[key];
       const [hx, hz] = this.world.findClearSpot(0, 0, 4);
       this.homePos = { x: hx, z: hz };
+      if (key === "tangerang") {
+        // her cluster's real gated entrance (Taman Beverly Golf)
+        const [gx, gz] = this.world.findClearSpot(hx + 16, hz + 8, 3);
+        addExtra(buildGatehouse(gx, gz, Math.atan2(hx - gx, hz - gz)));
+      }
       const marker = buildHomeMarker(hx, hz, home.label);
       addExtra(marker);
       this.interactables.push({

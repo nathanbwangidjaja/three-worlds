@@ -390,6 +390,68 @@ export function buildPortal(x, z, label, color = 0x7bdcff) {
   return { group, tick };
 }
 
+// The white gatehouse at the entrance to her cluster (Taman Beverly Golf,
+// Lippo Village) — classical booth, terracotta hip roof, gate pillars.
+export function buildGatehouse(x, z, ry = 0) {
+  const group = new THREE.Group();
+  group.position.set(x, 0, z);
+  group.rotation.y = ry;
+  const white = new THREE.MeshLambertMaterial({ color: 0xf2eee2 });
+  const terra = new THREE.MeshLambertMaterial({ color: 0x9c4a34 });
+
+  // booth
+  const booth = new THREE.Mesh(new THREE.BoxGeometry(3.2, 3.4, 3.2), white);
+  booth.position.y = 1.7;
+  booth.castShadow = true;
+  group.add(booth);
+  // cornice
+  const cornice = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.3, 3.8), white);
+  cornice.position.y = 3.5;
+  group.add(cornice);
+  // terracotta hip roof
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(2.9, 1.6, 4), terra);
+  roof.position.y = 4.4;
+  roof.rotation.y = Math.PI / 4;
+  roof.castShadow = true;
+  group.add(roof);
+  // doorway shadow
+  const door = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.2, 2.3),
+    new THREE.MeshLambertMaterial({ color: 0x2a2620 })
+  );
+  door.position.set(0, 1.25, 1.62);
+  group.add(door);
+
+  // gate pillars + low white walls each side
+  for (const side of [-1, 1]) {
+    const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.7, 2.4, 0.7), white);
+    pillar.position.set(side * 4.6, 1.2, 0);
+    pillar.castShadow = true;
+    group.add(pillar);
+    const cap = new THREE.Mesh(new THREE.ConeGeometry(0.55, 0.45, 4), terra);
+    cap.position.set(side * 4.6, 2.6, 0);
+    cap.rotation.y = Math.PI / 4;
+    group.add(cap);
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(5.4, 1.3, 0.3), white);
+    wall.position.set(side * 7.6, 0.65, 0);
+    group.add(wall);
+    // wrought gate bars
+    const gate = new THREE.Mesh(
+      new THREE.BoxGeometry(2.6, 1.7, 0.08),
+      new THREE.MeshLambertMaterial({ color: 0x2c2c30 })
+    );
+    gate.position.set(side * 2.95, 0.95, 0);
+    group.add(gate);
+  }
+
+  // golden name sign on the booth
+  const sprite = makeTextSprite("🌴 Taman Beverly", { scale: 0.014, color: "#f4e3b2" });
+  sprite.position.set(0, 4.0, 1.9);
+  group.add(sprite);
+
+  return { group, tick: () => {} };
+}
+
 export function buildBench(x, z, ry = 0) {
   const group = new THREE.Group();
   group.position.set(x, 0, z);

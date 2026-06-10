@@ -324,6 +324,8 @@ export class WorldBuilder {
   }
 
   buildRoads() {
+    // Distinct y per layer: meshes with different materials must never be
+    // coplanar (z-fighting renders as black flicker at intersections).
     const mainGeos = [], laneGeos = [], pathGeos = [], walkGeos = [];
     for (const r of this.data.roads) {
       if (r.p.length < 2) continue;
@@ -331,8 +333,8 @@ export class WorldBuilder {
         if (r.t === "path") {
           pathGeos.push(ribbonGeometry(r.p, r.w, 0.22, 3));
         } else {
-          const g = ribbonGeometry(r.p, r.w, 0.15, 12);
-          (r.w >= 7 ? laneGeos : mainGeos).push(g);
+          if (r.w >= 7) laneGeos.push(ribbonGeometry(r.p, r.w, 0.17, 12));
+          else mainGeos.push(ribbonGeometry(r.p, r.w, 0.15, 12));
           if (r.w >= 5.5 && r.w <= 11) {
             // sidewalk strip peeking out on both sides (skip highways)
             walkGeos.push(ribbonGeometry(r.p, r.w + 3.4, 0.11, 2.2));
@@ -348,10 +350,12 @@ export class WorldBuilder {
       this.group.add(mesh);
     };
     const roadBase = "#" + new THREE.Color(this.theme.road).getHexString();
-    add(laneGeos, new THREE.MeshLambertMaterial({ map: asphaltTexture({ base: roadBase, centerLine: true }) }));
-    add(mainGeos, new THREE.MeshLambertMaterial({ map: asphaltTexture({ base: roadBase, centerLine: false }) }));
-    add(walkGeos, new THREE.MeshLambertMaterial({ map: sidewalkTexture({ base: this.theme.night ? "#3e4150" : "#969188" }) }));
-    add(pathGeos, new THREE.MeshLambertMaterial({ map: sidewalkTexture({ base: "#" + new THREE.Color(this.theme.path).getHexString() }) }));
+    // DoubleSide: sharp miter corners can flip a sliver triangle — front-only
+    // materials would draw those as black holes
+    add(laneGeos, new THREE.MeshLambertMaterial({ map: asphaltTexture({ base: roadBase, centerLine: true }), side: THREE.DoubleSide }));
+    add(mainGeos, new THREE.MeshLambertMaterial({ map: asphaltTexture({ base: roadBase, centerLine: false }), side: THREE.DoubleSide }));
+    add(walkGeos, new THREE.MeshLambertMaterial({ map: sidewalkTexture({ base: this.theme.night ? "#3e4150" : "#969188" }), side: THREE.DoubleSide }));
+    add(pathGeos, new THREE.MeshLambertMaterial({ map: sidewalkTexture({ base: "#" + new THREE.Color(this.theme.path).getHexString() }), side: THREE.DoubleSide }));
   }
 
   // ------------------------------------------------------------ buildings
@@ -385,10 +389,16 @@ export class WorldBuilder {
     const tunedMats = {};   // styleKey -> material (lazy)
     const tunedWalls = {};  // styleKey -> buffer
     this.tunedBuildings = [];
-    const matchTuning = (name) => {
-      if (!name) return null;
+    const matchTuning = (name, cx, cz, cat, area) => {
       for (const rule of tuningRules) {
-        if (typeof rule.match === "string" ? name === rule.match : rule.match.test(name)) return rule;
+        if (rule.match) {
+          if (!name) continue;
+          if (typeof rule.match === "string" ? name === rule.match : rule.match.test(name)) return rule;
+        } else if (rule.at) {
+          if (rule.cat && rule.cat !== cat) continue;
+          if (rule.minArea && area < rule.minArea) continue;
+          if (Math.hypot(cx - rule.at[0], cz - rule.at[1]) <= rule.r) return rule;
+        }
       }
       return null;
     };
@@ -454,14 +464,16 @@ export class WorldBuilder {
       if (b.tower && b.h > 100) continue; // Eiffel gets a hand-built model
 
       let pts = b.p;
-      this.collisionPolys.push({ pts, bbox: polyBBox(pts), h: b.h });
       if (signedArea(pts) < 0) pts = pts.slice().reverse();
-      const h = b.h;
       const cat = b.c || "generic";
-      this.buildingList.push({ pts, h, cat });
+      const [bcx, bcz] = centroidOf(pts);
+      const bArea = Math.abs(signedArea(pts));
 
       // hand-tuned building? route to its custom architectural style
-      const rule = matchTuning(b.n);
+      const rule = matchTuning(b.n, bcx, bcz, cat, bArea);
+      const h = rule?.h ?? b.h;
+      this.collisionPolys.push({ pts, bbox: polyBBox(pts), h });
+      this.buildingList.push({ pts, h, cat });
       let style, buf, tuned = null;
       if (rule) {
         tuned = STYLE_DEFS[rule.style];
