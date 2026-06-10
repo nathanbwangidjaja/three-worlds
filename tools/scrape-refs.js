@@ -102,6 +102,8 @@ for (const s of samples) {
     `https://maps.googleapis.com/maps/api/streetview/metadata?location=${lat},${lon}&radius=28&source=outdoor&key=${KEY}`
   );
   if (meta.status !== "OK" || seenPanos.has(meta.pano_id)) continue;
+  // skip user-contributed panos (often indoor shots inside malls/restaurants)
+  if (meta.copyright && !/Google/.test(meta.copyright)) continue;
   seenPanos.add(meta.pano_id);
   const [px, pz] = toXZ(meta.location.lat, meta.location.lng);
   hits.push({ pano: meta.pano_id, date: meta.date, x: px, z: pz, bearing: Math.round(s.bearing) });

@@ -337,7 +337,8 @@ export class WorldBuilder {
       if (r.p.length < 2) continue;
       try {
         if (r.t === "path") {
-          pathGeos.push(ribbonGeometry(r.p, r.w, 0.22, 3));
+          // below the roads so crossings don't paint stripes on the asphalt
+          pathGeos.push(ribbonGeometry(r.p, r.w, 0.135, 3));
         } else {
           if (r.w >= 7) laneGeos.push(ribbonGeometry(r.p, r.w, 0.17, 12));
           else mainGeos.push(ribbonGeometry(r.p, r.w, 0.15, 12));
@@ -483,6 +484,14 @@ export class WorldBuilder {
             const h = rng() < 0.2 ? 6.6 + rng() * 1.2 : 4 + rng() * 1.4;
             newHouses.push({ p: pts, h: Math.round(h * 10) / 10, c: "house" });
             markPoly(pts);
+            // front hedge between the lane and the yard (every ref photo has one)
+            this.hedgeSpots = this.hedgeSpots || [];
+            this.hedgeSpots.push({
+              x: ax + dx * d + nx * side * (road.w / 2 + 2.4),
+              z: az + dz * d + nz * side * (road.w / 2 + 2.4),
+              ry: Math.atan2(dx, dz),
+              len: wAlong + 1.5,
+            });
           }
         }
       }
@@ -924,7 +933,10 @@ export class WorldBuilder {
     const foliageColors = theme.treeFoliage.map((c) => new THREE.Color(c));
 
     // big rain trees arching over the avenues (the Sudirman canopy)
-    if (theme.fillHouses) this.buildRainTrees();
+    if (theme.fillHouses) {
+      this.buildRainTrees();
+      this.buildHedges();
+    }
 
     if (theme.treeKind === "palm") {
       this.buildPalms(trees, foliageColors);
@@ -958,6 +970,27 @@ export class WorldBuilder {
     trunkMesh.castShadow = true;
     blobMesh.castShadow = true;
     this.group.add(trunkMesh, blobMesh);
+  }
+
+  buildHedges() {
+    const spots = this.hedgeSpots || [];
+    if (!spots.length) return;
+    const geo = new THREE.BoxGeometry(0.55, 0.85, 1);
+    geo.translate(0, 0.42, 0);
+    const mesh = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({ color: 0x41663a }), spots.length);
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const eu = new THREE.Euler();
+    const scl = new THREE.Vector3();
+    spots.forEach((s, i) => {
+      eu.set(0, s.ry, 0);
+      q.setFromEuler(eu);
+      scl.set(1, 0.85 + (i % 4) * 0.1, s.len);
+      m.compose(new THREE.Vector3(s.x, 0, s.z), q, scl);
+      mesh.setMatrixAt(i, m);
+    });
+    mesh.castShadow = true;
+    this.group.add(mesh);
   }
 
   buildRainTrees() {
@@ -1009,17 +1042,18 @@ export class WorldBuilder {
 
   buildPalms(trees, foliageColors) {
     const { rng } = this;
-    const trunkGeo = new THREE.CylinderGeometry(0.12, 0.22, 5.2, 5);
-    trunkGeo.translate(0, 2.6, 0);
+    // tall coconut palms, like the references — not stubby ones
+    const trunkGeo = new THREE.CylinderGeometry(0.11, 0.2, 7.8, 5);
+    trunkGeo.translate(0, 3.9, 0);
     const frondGeos = [];
-    for (let i = 0; i < 6; i++) {
-      const f = new THREE.BoxGeometry(2.6, 0.06, 0.5);
-      f.translate(1.3, 0, 0);
+    for (let i = 0; i < 7; i++) {
+      const f = new THREE.BoxGeometry(3.1, 0.06, 0.55);
+      f.translate(1.55, 0, 0);
       const m = new THREE.Matrix4()
-        .makeRotationY((i / 6) * Math.PI * 2)
-        .multiply(new THREE.Matrix4().makeRotationZ(-0.45));
+        .makeRotationY((i / 7) * Math.PI * 2)
+        .multiply(new THREE.Matrix4().makeRotationZ(-0.5));
       f.applyMatrix4(m);
-      f.translate(0, 5.2, 0);
+      f.translate(0, 7.8, 0);
       frondGeos.push(f);
     }
     const frondGeo = mergeGeometries(frondGeos, false);
@@ -1152,37 +1186,45 @@ export class WorldBuilder {
       return false;
     };
 
+    // Walk each roadside as one continuous run of sample points; every
+    // consecutive valid pair gets a rail stretched exactly between them.
+    // No per-segment seams → no gaps, correct orientation on curves.
     const pillars = [], rails = [];
     big.forEach((r, ri) => {
-      for (let i = 1; i < r.p.length; i++) {
-        const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
-        const segLen = Math.hypot(bx - ax, bz - az);
-        if (segLen < 4) continue;
-        const dx = (bx - ax) / segLen, dz = (bz - az) / segLen;
-        const nx = -dz, nz = dx;
-        const ry = Math.atan2(dx, dz);
-        for (const side of [-1, 1]) {
-          const off = r.w / 2 + 3.2;
-          for (let d = 0; d < segLen - 2; d += 12) {
+      for (const side of [-1, 1]) {
+        const off = r.w / 2 + 3.2;
+        let prev = null; // last valid point of the current run
+        for (let i = 1; i < r.p.length; i++) {
+          const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
+          const segLen = Math.hypot(bx - ax, bz - az);
+          if (segLen < 1) continue;
+          const dx = (bx - ax) / segLen, dz = (bz - az) / segLen;
+          const nx = -dz, nz = dx;
+          for (let d = 0; d < segLen; d += 11) {
             const px = ax + dx * d + nx * side * off;
             const pz = az + dz * d + nz * side * off;
-            if (Math.hypot(px, pz) > 540) continue;          // her area only
-            if (Math.hypot(px + 0.5, pz - 14) < 19) continue; // the gate opening
-            if (nearJunction(px, pz)) continue;
-            if (facesTwinRoad(px, pz, ri)) continue;         // median of a divided avenue
-            pillars.push({ x: px, z: pz });
-            const rxm = ax + dx * (d + 6) + nx * side * off;
-            const rzm = az + dz * (d + 6) + nz * side * off;
-            if (d + 12 < segLen && !nearJunction(rxm, rzm) &&
-                Math.hypot(rxm + 0.5, rzm - 14) >= 19 && Math.hypot(rxm, rzm) <= 540 &&
-                !facesTwinRoad(rxm, rzm, ri)) {
-              rails.push({ x: rxm, z: rzm, ry });
+            const ok =
+              Math.hypot(px, pz) <= 540 &&
+              Math.hypot(px + 0.5, pz - 14) >= 19 &&   // the gate opening
+              !nearJunction(px, pz) &&
+              !facesTwinRoad(px, pz, ri);
+            if (!ok) { prev = null; continue; }
+            if (prev) {
+              const span = Math.hypot(px - prev.x, pz - prev.z);
+              if (span > 2 && span < 16) {
+                rails.push({
+                  x: (px + prev.x) / 2, z: (pz + prev.z) / 2,
+                  ry: Math.atan2(px - prev.x, pz - prev.z),
+                  len: span,
+                });
+              }
             }
-            if (pillars.length > 700) break;
+            pillars.push({ x: px, z: pz });
+            prev = { x: px, z: pz };
+            if (pillars.length > 800) break;
           }
-          if (pillars.length > 700) break;
+          if (pillars.length > 800) break;
         }
-        if (pillars.length > 700) break;
       }
     });
     if (!pillars.length) return;
@@ -1191,19 +1233,25 @@ export class WorldBuilder {
     pillarGeo.translate(0, 0.78, 0);
     const capGeo = new THREE.SphereGeometry(0.16, 6, 5);
     capGeo.translate(0, 1.66, 0);
-    // open picket fence: textured plane with transparent gaps, not a wall
-    const railGeo = new THREE.PlaneGeometry(11.6, 1.5);
+    // open picket fence: unit-length textured plane scaled to each span,
+    // plus a solid top rail so the fence still reads from far away
+    const railGeo = new THREE.PlaneGeometry(1, 1.5);
     railGeo.rotateY(Math.PI / 2);
     railGeo.translate(0, 0.78, 0);
+    const topGeo = new THREE.BoxGeometry(0.09, 0.09, 1);
+    topGeo.translate(0, 1.5, 0);
 
     const white = new THREE.MeshLambertMaterial({ color: 0xefe9dc });
+    const ironTex = fenceTexture();
+    ironTex.repeat.set(3.5, 1);
     const iron = new THREE.MeshLambertMaterial({
-      map: fenceTexture(), transparent: true, alphaTest: 0.4, side: THREE.DoubleSide,
+      map: ironTex, transparent: true, alphaTest: 0.2, side: THREE.DoubleSide,
     });
-    iron.map.repeat.set(4, 1);
+    const ironSolid = new THREE.MeshLambertMaterial({ color: 0x2c3530 });
     const pMesh = new THREE.InstancedMesh(pillarGeo, white, pillars.length);
     const cMesh = new THREE.InstancedMesh(capGeo, white, pillars.length);
     const rMesh = new THREE.InstancedMesh(railGeo, iron, rails.length);
+    const tMesh = new THREE.InstancedMesh(topGeo, ironSolid, rails.length);
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const eu = new THREE.Euler();
@@ -1212,14 +1260,17 @@ export class WorldBuilder {
       pMesh.setMatrixAt(i, m);
       cMesh.setMatrixAt(i, m);
     });
+    const scl = new THREE.Vector3();
     rails.forEach((rr, i) => {
       eu.set(0, rr.ry, 0);
       q.setFromEuler(eu);
-      m.compose(new THREE.Vector3(rr.x, 0, rr.z), q, new THREE.Vector3(1, 1, 1));
+      scl.set(1, 1, rr.len);
+      m.compose(new THREE.Vector3(rr.x, 0, rr.z), q, scl);
       rMesh.setMatrixAt(i, m);
+      tMesh.setMatrixAt(i, m);
     });
     pMesh.castShadow = rMesh.castShadow = true;
-    this.group.add(pMesh, cMesh, rMesh);
+    this.group.add(pMesh, cMesh, rMesh, tMesh);
   }
 
   // ----------------------------------------------------- avenue medians
@@ -1247,6 +1298,18 @@ export class WorldBuilder {
       }
       return false;
     };
+    // cross-street mouths punch gaps through the median
+    const jctPts = [];
+    for (const r of data.roads) {
+      if (r.w >= 7.5 && r.t === "road") continue;
+      for (const p of r.p) jctPts.push(p);
+    }
+    const nearJct = (x, z) => {
+      for (const [jx, jz] of jctPts) {
+        if (Math.abs(jx - x) < 9 && Math.abs(jz - z) < 9 && Math.hypot(jx - x, jz - z) < 9) return true;
+      }
+      return false;
+    };
 
     const geos = [];
     big.forEach((r, ri) => {
@@ -1268,8 +1331,9 @@ export class WorldBuilder {
           const nx = -dz / len, nz = dx / len;
           const mx = x + nx * side * (r.w / 2 + 2.0);
           const mz = z + nz * side * (r.w / 2 + 2.0);
-          if (twinAt(mx, mz, ri) && Math.hypot(mx, mz) < 560) run.push([mx, mz]);
-          else flush();
+          if (twinAt(mx, mz, ri) && Math.hypot(mx, mz) < 560 && !nearJct(mx, mz)) {
+            run.push([mx, mz]);
+          } else flush();
         }
         flush();
       }
