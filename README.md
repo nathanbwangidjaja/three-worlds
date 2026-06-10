@@ -48,6 +48,15 @@ When **both of you stand within ~110 m of the Eiffel Tower at the same time**, t
 sparkle goes into overdrive, a banner appears, and fireworks launch over the Seine for as
 long as you stay together.
 
+## Photorealistic mode (Google 3D Tiles)
+
+With `VITE_GOOGLE_MAPS_API_KEY` set in `client/.env` (Map Tiles API enabled),
+**Boston and Paris stream Google's real photogrammetry** — his actual street in
+Cambridge and the real Eiffel Tower, walkable, with terrain-following movement.
+Tangerang stays in the stylized OSM world because Google has no 3D building mesh
+for that area (per-city switch: `CITY_COORDS` in `client/src/game/RealWorld.js`).
+Without a key, every city falls back to the stylized world automatically.
+
 ## Real map data
 
 `client/public/data/{boston,tangerang,paris}.json` were baked from OpenStreetMap
