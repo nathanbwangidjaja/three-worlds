@@ -568,12 +568,14 @@ export class Game {
       this.avatar.group.position.set(p.x, this.groundY + p.y, p.z);
     }
     this.avatarLight.position.set(p.x, this.groundY + p.y + 3.2, p.z);
-    // smooth heading turn
-    let dh = this.controls.heading - this.avatar.group.rotation.y;
-    while (dh > Math.PI) dh -= Math.PI * 2;
-    while (dh < -Math.PI) dh += Math.PI * 2;
-    this.avatar.group.rotation.y += dh * Math.min(1, dt * 12);
-    this.avatar.animate(dt, speed, t);
+    // smooth heading turn — but never fight the chair while seated
+    if (!this.seatedAt) {
+      let dh = this.controls.heading - this.avatar.group.rotation.y;
+      while (dh > Math.PI) dh -= Math.PI * 2;
+      while (dh < -Math.PI) dh += Math.PI * 2;
+      this.avatar.group.rotation.y += dh * Math.min(1, dt * 12);
+    }
+    this.avatar.animate(dt, this.seatedAt ? 0 : speed, t);
 
     this.controls.updateCamera(
       dt,

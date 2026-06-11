@@ -340,25 +340,31 @@ export class Avatar {
       cap.position.y = 0.33;
       head.add(cap);
     } else {
-      // her: long dark hair, middle part, strands framing the face —
-      // cap sits high in front so her eyes show, back panel carries the length
+      // her: long dark hair — one connected shape: crown cap high enough to
+      // show her eyes, side curtains hugging the head, full back panel
       const cap = new THREE.Mesh(
-        new THREE.SphereGeometry(0.365, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.5),
+        new THREE.SphereGeometry(0.375, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.45),
         hairM
       );
-      cap.position.y = 0.36;
+      cap.position.y = 0.33;
       head.add(cap);
-      const back = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.85, 0.16), hairM);
-      back.position.set(0, -0.02, -0.27);
-      head.add(back);
+      // side curtains overlap the cap edge and fall past the shoulders
       for (const sx of [-1, 1]) {
-        const strand = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.62, 0.13), hairM);
-        strand.position.set(sx * 0.3, 0.0, 0.06);
-        head.add(strand);
-        const front = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.3, 0.08), hairM);
-        front.position.set(sx * 0.24, 0.32, 0.24);
-        front.rotation.z = -sx * 0.18;
-        head.add(front);
+        const curtain = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.98, 0.32), hairM);
+        curtain.position.set(sx * 0.295, -0.02, -0.03);
+        curtain.rotation.z = -sx * 0.05;
+        head.add(curtain);
+      }
+      // back panel connects the curtains
+      const back = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.98, 0.15), hairM);
+      back.position.set(0, -0.02, -0.245);
+      head.add(back);
+      // soft middle-part fringe pieces, flush against the forehead
+      for (const sx of [-1, 1]) {
+        const fringe = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.07), hairM);
+        fringe.position.set(sx * 0.17, 0.5, 0.265);
+        fringe.rotation.z = -sx * 0.42;
+        head.add(fringe);
       }
     }
     body.add(head);

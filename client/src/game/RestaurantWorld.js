@@ -337,10 +337,10 @@ export class RestaurantWorld {
       const candle = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 0.14, 6), new THREE.MeshLambertMaterial({ color: 0xf0e8d8 }));
       candle.position.set(x, 0.88, z);
       this.group.add(candle);
-      const cl = new THREE.PointLight(0xffc46a, yours ? 2.8 : 2.0, 3.2, 2);
+      const cl = new THREE.PointLight(0xffc46a, yours ? 1.7 : 1.3, 2.8, 2);
       cl.position.set(x, 1.05, z);
       this.group.add(cl);
-      this.animated.push((tt) => { cl.intensity = (yours ? 2.5 : 1.8) + Math.sin(tt * 9.7 + x) * 0.45; });
+      this.animated.push((tt) => { cl.intensity = (yours ? 1.55 : 1.2) + Math.sin(tt * 9.7 + x) * 0.3; });
     }
     this.tables.push({ x, z, yours, foods: [] });
   }
@@ -599,6 +599,15 @@ export class RestaurantWorld {
     };
   }
 
+  // tables + walls only — staff may enter the kitchen, guests may not
+  _npcBlocked(x, z) {
+    if (Math.abs(x) > this.W / 2 - 0.6 || Math.abs(z) > this.D / 2 - 0.6) return true;
+    for (const tb of this.tables) {
+      if (Math.hypot(tb.x - x, tb.z - z) < 1.25) return true;
+    }
+    return false;
+  }
+
   // -------------------------------------------------------- interface
   blocked(x, z) {
     // walls
@@ -620,7 +629,8 @@ export class RestaurantWorld {
   tick(t, dt) {
     for (const fn of this.animated) fn(t, dt);
     this.stateT += dt;
-    // npc walking along their aisle paths
+    // npc walking with table avoidance: if the straight step is blocked,
+    // try steering left/right in widening angles until a clear step exists
     for (const npc of this.npcs) {
       const g = npc.avatar.group;
       const wp = npc.path?.[0];
@@ -630,10 +640,23 @@ export class RestaurantWorld {
         const dist = Math.hypot(dx, dz);
         if (dist > 0.22) {
           const sp = 2.6;
-          g.position.x += (dx / dist) * sp * dt;
-          g.position.z += (dz / dist) * sp * dt;
-          g.rotation.y = Math.atan2(dx, dz);
-          npc.speed = sp;
+          const baseAng = Math.atan2(dx, dz);
+          let moved = false;
+          for (const off of [0, 0.5, -0.5, 1.0, -1.0, 1.5, -1.5]) {
+            const a = baseAng + off;
+            const nx = g.position.x + Math.sin(a) * sp * dt;
+            const nz = g.position.z + Math.cos(a) * sp * dt;
+            // look slightly ahead so they steer early, not at the last moment
+            const lx = g.position.x + Math.sin(a) * 0.55;
+            const lz = g.position.z + Math.cos(a) * 0.55;
+            if (dist > 1.4 && (this._npcBlocked(nx, nz) || this._npcBlocked(lx, lz))) continue;
+            g.position.x = nx;
+            g.position.z = nz;
+            g.rotation.y = a;
+            moved = true;
+            break;
+          }
+          npc.speed = moved ? sp : 0;
         } else {
           npc.path.shift();
           if (!npc.path.length) {
