@@ -2097,12 +2097,14 @@ export class WorldBuilder {
     const { rng } = this;
     this.trafficRoutes = [];
     for (const r of this.data.roads) {
-      if (r.t !== "road" || r.w < 6.5 || r.w === 8 || r.p.length < 2) continue;
+      // wider streets only — on narrow lanes the driving lane overlaps the
+      // parked-car line and traffic would clip straight through them
+      if (r.t !== "road" || r.w < 8.5 || r.p.length < 2) continue;
       let len = 0;
       for (let i = 1; i < r.p.length; i++) len += Math.hypot(r.p[i][0] - r.p[i - 1][0], r.p[i][1] - r.p[i - 1][1]);
       if (len < 130) continue;
       this.trafficRoutes.push({ r, len });
-      if (this.trafficRoutes.length >= 60) break;
+      if (this.trafficRoutes.length >= 80) break;
     }
     if (!this.trafficRoutes.length) return;
     this.traffic = [];
@@ -2131,8 +2133,9 @@ export class WorldBuilder {
         const tt = s / segLen;
         const dx = (bx - ax) / segLen, dz = (bz - az) / segLen;
         const nx = -dz, nz = dx;
-        // keep to your side of the road (left-hand traffic in Indonesia)
-        const lane = (this.theme.driveLeft ? -1 : 1) * tr.dir * tr.route.w * 0.24;
+        // keep to your side of the road (left-hand traffic in Indonesia),
+        // hugging the inner lane so the kerbside parking stays clear
+        const lane = (this.theme.driveLeft ? -1 : 1) * tr.dir * tr.route.w * 0.18;
         return {
           x: ax + (bx - ax) * tt + nx * lane,
           z: az + (bz - az) * tt + nz * lane,
@@ -2148,22 +2151,50 @@ export class WorldBuilder {
     if (!this.traffic) return;
     const pp = this._playerPos;
     for (const tr of this.traffic) {
-      // polite drivers: ease off near the couple (walking or driving)
       let v = tr.speed;
       const cg = tr.car.group;
+      // polite drivers: ease off near the couple (walking or driving)
       if (pp) {
         const d = Math.hypot(cg.position.x - pp.x, cg.position.z - pp.z);
         if (d < 7) v = 0;
         else if (d < 14) v *= 0.35;
       }
+      // traffic law #1: don't rear-end the car ahead of you
+      const fwdX = Math.sin(cg.rotation.y), fwdZ = Math.cos(cg.rotation.y);
+      for (const other of this.traffic) {
+        if (other === tr) continue;
+        const og = other.car.group;
+        const dx = og.position.x - cg.position.x, dz = og.position.z - cg.position.z;
+        const ahead = dx * fwdX + dz * fwdZ;
+        if (ahead <= 0 || ahead > 16) continue;
+        const lateral = Math.abs(dx * fwdZ - dz * fwdX);
+        if (lateral > 3.0) continue;
+        // anything dead ahead — same lane or crossing the junction — wait
+        if (ahead < 6.5) { v = 0; continue; }
+        let hdiff = Math.abs(og.rotation.y - cg.rotation.y) % (Math.PI * 2);
+        if (hdiff > Math.PI) hdiff = Math.PI * 2 - hdiff;
+        if (hdiff < 1.3) v = Math.min(v, tr.speed * 0.4);
+      }
       tr.s += v * tr.dir * dt;
       if (tr.s <= 0 || tr.s >= tr.routeLen) {
-        // route done — reassign to a fresh street (far away = invisible swap)
-        const route = this.trafficRoutes[Math.floor(Math.random() * this.trafficRoutes.length)];
-        tr.route = route.r; tr.routeLen = route.len;
-        tr.dir = Math.random() > 0.5 ? 1 : -1;
-        tr.s = tr.dir > 0 ? 0.01 : route.len - 0.01;
-        tr.speed = (route.r.w >= 13 ? 12 : 7) + Math.random() * 3;
+        const nearPlayer = pp && Math.hypot(cg.position.x - pp.x, cg.position.z - pp.z) < 140;
+        if (nearPlayer) {
+          // a car vanishing in plain sight looks broken — U-turn instead
+          tr.dir = -tr.dir;
+          tr.s = Math.max(0.01, Math.min(tr.routeLen - 0.01, tr.s));
+        } else {
+          // out of sight: quietly start a fresh street somewhere else
+          const route = this.trafficRoutes[Math.floor(Math.random() * this.trafficRoutes.length)];
+          tr.route = route.r; tr.routeLen = route.len;
+          tr.dir = Math.random() > 0.5 ? 1 : -1;
+          tr.s = tr.dir > 0 ? 0.01 : route.len - 0.01;
+          tr.speed = (route.r.w >= 13 ? 12 : 7) + Math.random() * 3;
+          const fresh = this._trafficPose(tr);
+          if (fresh) { // snap, don't lerp halfway across the city
+            cg.position.set(fresh.x, this.surfaceY(fresh.x, fresh.z), fresh.z);
+            cg.rotation.y = fresh.ry;
+          }
+        }
       }
       const pose = this._trafficPose(tr);
       if (!pose) continue;
@@ -2558,9 +2589,9 @@ export class WorldBuilder {
       for (let i = 1; i < r.p.length; i++) len += Math.hypot(r.p[i][0] - r.p[i - 1][0], r.p[i][1] - r.p[i - 1][1]);
       if (len < 40) continue;
       const d0 = Math.hypot(r.p[0][0], r.p[0][1]);
-      if (d0 > 700) continue; // keep the crowd near the heart of the map
+      if (d0 > 1350) continue; // covers home, the boulevard AND the UPH/mall CBD
       routes.push({ r, len });
-      if (routes.length > count * 3) break;
+      if (routes.length > count * 4) break;
     }
     for (let k = 0; k < count && routes.length; k++) {
       const route = routes[Math.floor(rng() * routes.length)];
@@ -2631,18 +2662,20 @@ export class WorldBuilder {
     return dog;
   }
 
-  _pedPose(ped) {
+  _pedPose(ped, extra) {
     // arc-length position along the road polyline, offset to the sidewalk
+    // (extra widens/narrows the offset — used to sidestep around obstacles)
     const pts = ped.route.p;
     let s = ped.s;
+    const dodge = extra !== undefined ? extra : (ped.dodge || 0);
     for (let i = 1; i < pts.length; i++) {
       const [ax, az] = pts[i - 1], [bx, bz] = pts[i];
       const segLen = Math.hypot(bx - ax, bz - az);
-      if (s <= segLen) {
+      if (s <= segLen && segLen > 0.01) {
         const t = s / segLen;
         const dx = (bx - ax) / segLen, dz = (bz - az) / segLen;
         const nx = -dz, nz = dx;
-        const off = ped.route.w / 2 + 1.3;
+        const off = ped.route.w / 2 + 1.3 + dodge;
         return {
           x: ax + (bx - ax) * t + nx * ped.side * off,
           z: az + (bz - az) * t + nz * ped.side * off,
@@ -2747,18 +2780,45 @@ export class WorldBuilder {
           ped.dir = -ped.dir;
           ped.s = Math.max(0.01, Math.min(ped.routeLen - 0.01, ped.s));
         }
-        let pose = this._pedPose(ped);
-        // an obstacle on the sidewalk (pole, scooter, sign): step past it,
-        // never freeze in place — frozen peds piled up at the origin
-        let hops = 0;
-        while (pose && this.blocked(pose.x, pose.z) && hops < 4) {
-          ped.s += ped.dir * 2.4;
-          if (ped.s <= 0 || ped.s >= ped.routeLen) { ped.dir = -ped.dir; ped.s = Math.max(0.01, Math.min(ped.routeLen - 0.01, ped.s)); }
-          pose = this._pedPose(ped);
-          hops++;
+        // obstacle ahead (pole, scooter, sign)? swing smoothly around it —
+        // never jump, never freeze (jumps read as teleporting, freezes piled
+        // everyone up at the origin)
+        ped.dodge = ped.dodge || 0;
+        ped.dodgeT = ped.dodgeT || 0;
+        let pose = this._pedPose(ped, ped.dodge);
+        if (!pose) { ped.dir = -ped.dir; continue; }
+        if (this.blocked(pose.x, pose.z)) {
+          let found = false;
+          for (const cand of [0, 0.9, -0.9, 1.7, -1.4]) {
+            const p2 = this._pedPose(ped, cand);
+            if (p2 && !this.blocked(p2.x, p2.z)) { ped.dodgeT = cand; found = true; break; }
+          }
+          if (!found) { ped.dir = -ped.dir; continue; }
+        } else if (ped.dodgeT !== 0) {
+          const base = this._pedPose(ped, 0);
+          if (base && !this.blocked(base.x, base.z)) ped.dodgeT = 0; // drift back to the kerb line
         }
-        if (!pose || this.blocked(pose.x, pose.z)) { ped.dir = -ped.dir; continue; }
-        g.position.set(pose.x, this.surfaceY(pose.x, pose.z), pose.z);
+        ped.dodge += (ped.dodgeT - ped.dodge) * Math.min(1, dt * 3.2);
+        pose = this._pedPose(ped, ped.dodge);
+        if (!pose) { ped.dir = -ped.dir; continue; }
+        if (this.blocked(pose.x, pose.z)) {
+          // mid-swing graze: hesitate — and give the step back, otherwise the
+          // arc-length keeps accruing and they snap forward when released
+          ped.s -= ped.speed * ped.dir * dt;
+          continue;
+        }
+        // ease toward the target: at sharp street corners the sidewalk offset
+        // pivots to the new segment's normal in one step — chasing it smoothly
+        // is what turns "teleport" into "rounding the corner"
+        const jump = Math.hypot(pose.x - g.position.x, pose.z - g.position.z);
+        if (jump > 4) {
+          g.position.set(pose.x, this.surfaceY(pose.x, pose.z), pose.z); // fresh spawn/unhide
+        } else {
+          const kk = Math.min(1, dt * (2 + ped.speed * 2.2));
+          g.position.x += (pose.x - g.position.x) * kk;
+          g.position.z += (pose.z - g.position.z) * kk;
+          g.position.y = this.surfaceY(g.position.x, g.position.z);
+        }
         let dh = pose.ry - g.rotation.y;
         while (dh > Math.PI) dh -= Math.PI * 2;
         while (dh < -Math.PI) dh += Math.PI * 2;
