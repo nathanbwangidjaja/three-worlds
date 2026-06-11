@@ -558,7 +558,7 @@ export function flatRoofTexture({ base = "#6e6862", seed = 11 } = {}) {
 
 // ------------------------------------------------------------------ roads
 // u runs along the road (1 tile ≈ 12 m), v across.
-export function asphaltTexture({ base = "#3c3e44", line = "rgba(225,215,185,0.6)", centerLine = true } = {}) {
+export function asphaltTexture({ base = "#3c3e44", line = "rgba(225,215,185,0.6)", centerLine = true, lineStyle = "dash" } = {}) {
   const W = 256, H = 128;
   const [c, ctx] = canvas(W, H);
   const rnd = rngFactory(17);
@@ -569,7 +569,12 @@ export function asphaltTexture({ base = "#3c3e44", line = "rgba(225,215,185,0.6)
     ctx.fillStyle = v > 0 ? `rgba(255,255,255,${v})` : `rgba(0,0,0,${-v})`;
     ctx.fillRect(rnd() * W, rnd() * H, 2, 2);
   }
-  if (centerLine) {
+  if (centerLine && lineStyle === "yellowDouble") {
+    // the Boston double-yellow
+    ctx.fillStyle = "rgba(208,168,72,0.85)";
+    ctx.fillRect(0, H / 2 - 5, W, 3);
+    ctx.fillRect(0, H / 2 + 2, W, 3);
+  } else if (centerLine) {
     ctx.fillStyle = line;
     ctx.fillRect(W * 0.08, H / 2 - 2, W * 0.5, 4); // dashed
   }

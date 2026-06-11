@@ -359,7 +359,7 @@ export class WorldBuilder {
     const roadBase = "#" + new THREE.Color(this.theme.road).getHexString();
     // DoubleSide: sharp miter corners can flip a sliver triangle — front-only
     // materials would draw those as black holes
-    add(laneGeos, new THREE.MeshLambertMaterial({ map: asphaltTexture({ base: roadBase, centerLine: true }), side: THREE.DoubleSide }));
+    add(laneGeos, new THREE.MeshLambertMaterial({ map: asphaltTexture({ base: roadBase, centerLine: true, lineStyle: this.theme.roadLine || "dash" }), side: THREE.DoubleSide }));
     add(mainGeos, new THREE.MeshLambertMaterial({ map: asphaltTexture({ base: roadBase, centerLine: false }), side: THREE.DoubleSide }));
     add(walkGeos, new THREE.MeshLambertMaterial({ map: sidewalkTexture({ base: this.theme.sidewalk || (this.theme.night ? "#3e4150" : "#969188") }), side: THREE.DoubleSide }));
     add(pathGeos, new THREE.MeshLambertMaterial({ map: sidewalkTexture({ base: "#" + new THREE.Color(this.theme.path).getHexString() }), side: THREE.DoubleSide }));
@@ -901,6 +901,29 @@ export class WorldBuilder {
         placed++;
       }
     }
+    // urban street trees in sidewalk rows (Kendall blocks in the refs)
+    if (theme.streetTrees) {
+      for (const r of this.data.roads) {
+        if (r.t !== "road" || r.w < 6 || r.w > 10) continue;
+        for (let i = 1; i < r.p.length && spots.length < 1500; i++) {
+          const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
+          const segLen = Math.hypot(bx - ax, bz - az);
+          if (segLen < 4) continue;
+          const dx = (bx - ax) / segLen, dz = (bz - az) / segLen;
+          const nx = -dz, nz = dx;
+          for (let d = 6; d < segLen; d += 13 + rng() * 5) {
+            for (const side of [-1, 1]) {
+              if (rng() > 0.62) continue;
+              const x = ax + dx * d + nx * side * (r.w / 2 + 2.6);
+              const z = az + dz * d + nz * side * (r.w / 2 + 2.6);
+              if (Math.hypot(x, z) > 450) continue;
+              spots.push([x, z]);
+            }
+          }
+        }
+      }
+    }
+
     // sparse OSM tree data (tangerang): scatter palms along the roads,
     // closest roads first so the area around her home feels lush
     if (this.data.trees.length < 120) {
@@ -944,8 +967,8 @@ export class WorldBuilder {
       this.buildRainTrees();
       this.buildHedges();
       this.buildShrubs();
-      this.buildCrosswalks();
     }
+    if (theme.crosswalks) this.buildCrosswalks();
 
     if (theme.treeKind === "palm") {
       this.buildPalms(trees, foliageColors);

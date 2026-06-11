@@ -30,6 +30,9 @@ export const THEMES = {
       { type: "facade", weight: 2, opts: { base: "#b8beb2", bigWindows: true, frame: "rgba(70,75,70,0.9)", glassTop: "#e4ecf0", glassBottom: "#88a0ae", noise: 0.02, seed: 59 } },
     ],
     roof: { type: "flat", base: "#5c544c" },
+    roadLine: "yellowDouble", // the Boston double-yellow center line
+    crosswalks: true,
+    streetTrees: true,        // rows of sidewalk trees on every Kendall block
     storefront: {
       wall: "#564c44", night: false, bandH: 4.0,
       chance: { retail: 1, office: 0.7, apartments: 0.6, generic: 0.3, school: 0.15 },
@@ -79,6 +82,7 @@ export const THEMES = {
       ],
     },
     fillHouses: true, // OSM has the cluster streets but not the villas — generate them
+    crosswalks: true,
     sidewalk: "#9a5f4a", // red brick pavers, like the real Lippo sidewalks
     storefront: {
       wall: "#c9b89a", night: false, bandH: 3.1,
