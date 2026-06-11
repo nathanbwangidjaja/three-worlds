@@ -11,7 +11,7 @@ import {
 } from "./textures.js";
 import { TUNING, STYLE_DEFS } from "./cityTuning.js";
 import { isRestaurant } from "./cuisines.js";
-import { modelParts, pickModel, TRIM_MAT } from "./cars.js";
+import { modelParts, pickModel, makeDriveCar, TRIM_MAT } from "./cars.js";
 import { Avatar, randomNpcLook } from "./Avatar.js";
 
 const TEXTURE_FACTORIES = {
@@ -1505,6 +1505,23 @@ export class WorldBuilder {
     }
     if (!spots.length) return;
 
+    // overlapping OSM ways (twin carriageways, duplicated streets) could
+    // sample two cars into the same curb space — overlapping colliders made
+    // driving out impossible. enforce a minimum spacing.
+    const spacing = ptGrid(8);
+    const spaced = [];
+    for (const s of spots) {
+      let clash = false;
+      for (const [ox, oz] of spacing.near(s.x, s.z, 6.2)) {
+        if (Math.hypot(ox - s.x, oz - s.z) < 6.2) { clash = true; break; }
+      }
+      if (clash) continue;
+      spacing.add(s.x, s.z);
+      spaced.push(s);
+    }
+    spots.length = 0;
+    spots.push(...spaced);
+
     // deterministic model + paint per spot (both players see the same cars)
     spots.forEach((s, i) => {
       s.index = i;
@@ -2033,6 +2050,7 @@ export class WorldBuilder {
   }
 
   updateSun(target) {
+    this._playerPos = target; // traffic brakes politely around the couple
     if (!this.sun) return;
     this.sun.position.copy(target).add(this.sunOffset);
     this.sun.target.position.copy(target);
@@ -2071,6 +2089,91 @@ export class WorldBuilder {
     if (sl.bollards) this.buildBollards();
     if (sl.carts) this.buildVendorCarts();
     if (sl.peds) this.buildPedestrians(sl.peds);
+    if (sl.traffic) this.buildTraffic(sl.traffic);
+  }
+
+  // ambient traffic — NPC cars actually driving the streets
+  buildTraffic(count) {
+    const { rng } = this;
+    this.trafficRoutes = [];
+    for (const r of this.data.roads) {
+      if (r.t !== "road" || r.w < 6.5 || r.w === 8 || r.p.length < 2) continue;
+      let len = 0;
+      for (let i = 1; i < r.p.length; i++) len += Math.hypot(r.p[i][0] - r.p[i - 1][0], r.p[i][1] - r.p[i - 1][1]);
+      if (len < 130) continue;
+      this.trafficRoutes.push({ r, len });
+      if (this.trafficRoutes.length >= 60) break;
+    }
+    if (!this.trafficRoutes.length) return;
+    this.traffic = [];
+    for (let k = 0; k < count; k++) {
+      const model = pickModel(this.data.key, rng);
+      const { spec } = modelParts(model);
+      const car = makeDriveCar(model, spec.paints[Math.floor(rng() * spec.paints.length)]);
+      car.headlight.intensity = this.theme.night ? 3.5 : 0;
+      this.group.add(car.group);
+      const route = this.trafficRoutes[Math.floor(rng() * this.trafficRoutes.length)];
+      this.traffic.push({
+        car, route: route.r, routeLen: route.len,
+        s: rng() * route.len, dir: rng() > 0.5 ? 1 : -1,
+        speed: (route.r.w >= 13 ? 12 : 7) + rng() * 3,
+      });
+    }
+  }
+
+  _trafficPose(tr) {
+    const pts = tr.route.p;
+    let s = tr.s;
+    for (let i = 1; i < pts.length; i++) {
+      const [ax, az] = pts[i - 1], [bx, bz] = pts[i];
+      const segLen = Math.hypot(bx - ax, bz - az);
+      if (s <= segLen && segLen > 0.01) {
+        const tt = s / segLen;
+        const dx = (bx - ax) / segLen, dz = (bz - az) / segLen;
+        const nx = -dz, nz = dx;
+        // keep to your side of the road (left-hand traffic in Indonesia)
+        const lane = (this.theme.driveLeft ? -1 : 1) * tr.dir * tr.route.w * 0.24;
+        return {
+          x: ax + (bx - ax) * tt + nx * lane,
+          z: az + (bz - az) * tt + nz * lane,
+          ry: Math.atan2(dx * tr.dir, dz * tr.dir),
+        };
+      }
+      s -= segLen;
+    }
+    return null;
+  }
+
+  _tickTraffic(dt) {
+    if (!this.traffic) return;
+    const pp = this._playerPos;
+    for (const tr of this.traffic) {
+      // polite drivers: ease off near the couple (walking or driving)
+      let v = tr.speed;
+      const cg = tr.car.group;
+      if (pp) {
+        const d = Math.hypot(cg.position.x - pp.x, cg.position.z - pp.z);
+        if (d < 7) v = 0;
+        else if (d < 14) v *= 0.35;
+      }
+      tr.s += v * tr.dir * dt;
+      if (tr.s <= 0 || tr.s >= tr.routeLen) {
+        // route done — reassign to a fresh street (far away = invisible swap)
+        const route = this.trafficRoutes[Math.floor(Math.random() * this.trafficRoutes.length)];
+        tr.route = route.r; tr.routeLen = route.len;
+        tr.dir = Math.random() > 0.5 ? 1 : -1;
+        tr.s = tr.dir > 0 ? 0.01 : route.len - 0.01;
+        tr.speed = (route.r.w >= 13 ? 12 : 7) + Math.random() * 3;
+      }
+      const pose = this._trafficPose(tr);
+      if (!pose) continue;
+      cg.position.set(pose.x, this.surfaceY(pose.x, pose.z), pose.z);
+      let dh = pose.ry - cg.rotation.y;
+      while (dh > Math.PI) dh -= Math.PI * 2;
+      while (dh < -Math.PI) dh += Math.PI * 2;
+      cg.rotation.y += dh * Math.min(1, dt * 6);
+      for (const w of tr.car.wheels) w.spin.rotation.x += (v / w.r) * dt;
+    }
   }
 
   // residential roads sorted closest-first so street life fills the heart
@@ -2464,13 +2567,68 @@ export class WorldBuilder {
       const look = randomNpcLook(rng);
       const role = look.hairstyle === "long" || look.hairstyle === "bun" ? "her" : "you";
       const av = new Avatar(role, "", { npcLook: look });
-      this.group.add(av.group);
-      this.peds.push({
+      const ped = {
         avatar: av, route: route.r, routeLen: route.len,
         s: rng() * route.len, dir: rng() > 0.5 ? 1 : -1,
         side: rng() > 0.5 ? 1 : -1, speed: 0.8 + rng() * 0.7,
-      });
+        doorTimer: 4 + rng() * 8, hiddenT: 0,
+      };
+      // place them on a CLEAR stretch of sidewalk right now — a ped whose
+      // first pose lands inside a pole collider must not haunt the origin
+      let placed = false;
+      for (let tries = 0; tries < 14 && !placed; tries++) {
+        const pose = this._pedPose(ped);
+        if (pose && !this.blocked(pose.x, pose.z)) {
+          av.group.position.set(pose.x, this.surfaceY(pose.x, pose.z), pose.z);
+          av.group.rotation.y = pose.ry;
+          placed = true;
+        } else {
+          ped.s = rng() * route.len;
+        }
+      }
+      if (!placed) { av.dispose?.(); continue; }
+      // a few of them live a little: a dog on a leash, or a work briefcase
+      const roll = rng();
+      if (roll < 0.16) {
+        ped.dog = this._makeDog(rng);
+        this.group.add(ped.dog);
+        ped.dog.position.copy(av.group.position);
+      } else if (roll < 0.42) {
+        const briefcase = new THREE.Mesh(
+          new THREE.BoxGeometry(0.3, 0.24, 0.09),
+          new THREE.MeshLambertMaterial({ color: rng() > 0.5 ? 0x4a3826 : 0x26282e })
+        );
+        briefcase.position.set(0, -0.62, 0.12);
+        av.armR?.add(briefcase);
+        ped.speed = Math.max(ped.speed, 1.25); // late for the office
+      }
+      this.group.add(av.group);
+      this.peds.push(ped);
     }
+  }
+
+  _makeDog(rng) {
+    const c = [0x8a6a44, 0x3a3430, 0xd8d2c4, 0x6e4a2a][Math.floor(rng() * 4)];
+    const mat = new THREE.MeshLambertMaterial({ color: c });
+    const dog = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.2, 0.46), mat);
+    body.position.y = 0.26;
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.2), mat);
+    head.position.set(0, 0.4, 0.3);
+    const earGeo = new THREE.BoxGeometry(0.05, 0.09, 0.04);
+    const earL = new THREE.Mesh(earGeo, mat); earL.position.set(-0.06, 0.52, 0.28);
+    const earR = new THREE.Mesh(earGeo, mat); earR.position.set(0.06, 0.52, 0.28);
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.18), mat);
+    tail.position.set(0, 0.34, -0.28);
+    tail.rotation.x = -0.6;
+    dog.add(body, head, earL, earR, tail);
+    for (const [lx, lz] of [[-0.07, 0.15], [0.07, 0.15], [-0.07, -0.15], [0.07, -0.15]]) {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.16, 0.05), mat);
+      leg.position.set(lx, 0.08, lz);
+      dog.add(leg);
+    }
+    dog.userData.tail = tail;
+    return dog;
   }
 
   _pedPose(ped) {
@@ -2577,23 +2735,63 @@ export class WorldBuilder {
     for (const fn of this.animated) fn(t, dt);
     if (this.peds) {
       for (const ped of this.peds) {
+        const g = ped.avatar.group;
+        // ducked into a warung for a bite — reappear when done
+        if (ped.hiddenT > 0) {
+          ped.hiddenT -= dt;
+          if (ped.hiddenT <= 0) { g.visible = true; if (ped.dog) ped.dog.visible = true; }
+          else continue;
+        }
         ped.s += ped.speed * ped.dir * dt;
         if (ped.s <= 0 || ped.s >= ped.routeLen) {
           ped.dir = -ped.dir;
           ped.s = Math.max(0.01, Math.min(ped.routeLen - 0.01, ped.s));
         }
-        const pose = this._pedPose(ped);
-        if (!pose) continue;
-        if (this.blocked(pose.x, pose.z)) { ped.dir = -ped.dir; continue; }
-        const g = ped.avatar.group;
+        let pose = this._pedPose(ped);
+        // an obstacle on the sidewalk (pole, scooter, sign): step past it,
+        // never freeze in place — frozen peds piled up at the origin
+        let hops = 0;
+        while (pose && this.blocked(pose.x, pose.z) && hops < 4) {
+          ped.s += ped.dir * 2.4;
+          if (ped.s <= 0 || ped.s >= ped.routeLen) { ped.dir = -ped.dir; ped.s = Math.max(0.01, Math.min(ped.routeLen - 0.01, ped.s)); }
+          pose = this._pedPose(ped);
+          hops++;
+        }
+        if (!pose || this.blocked(pose.x, pose.z)) { ped.dir = -ped.dir; continue; }
         g.position.set(pose.x, this.surfaceY(pose.x, pose.z), pose.z);
         let dh = pose.ry - g.rotation.y;
         while (dh > Math.PI) dh -= Math.PI * 2;
         while (dh < -Math.PI) dh += Math.PI * 2;
         g.rotation.y += dh * Math.min(1, dt * 8);
         ped.avatar.animate(dt, ped.speed, t);
+        // dog trots along behind, tail going
+        if (ped.dog) {
+          const bx = g.position.x - Math.sin(g.rotation.y) * 0.85 + 0.3;
+          const bz = g.position.z - Math.cos(g.rotation.y) * 0.85;
+          ped.dog.position.x += (bx - ped.dog.position.x) * Math.min(1, dt * 5);
+          ped.dog.position.z += (bz - ped.dog.position.z) * Math.min(1, dt * 5);
+          ped.dog.position.y = this.surfaceY(ped.dog.position.x, ped.dog.position.z);
+          ped.dog.lookAt(g.position.x, ped.dog.position.y, g.position.z);
+          if (ped.dog.userData.tail) ped.dog.userData.tail.rotation.z = Math.sin(t * 9) * 0.45;
+        }
+        // every so often, pop into a restaurant for a while
+        ped.doorTimer -= dt;
+        if (ped.doorTimer <= 0) {
+          ped.doorTimer = 6 + Math.random() * 10;
+          if (this.restaurantDoors && Math.random() < 0.3) {
+            for (const door of this.restaurantDoors) {
+              if (Math.hypot(door.x - g.position.x, door.z - g.position.z) < 4) {
+                ped.hiddenT = 18 + Math.random() * 22;
+                g.visible = false;
+                if (ped.dog) ped.dog.visible = false;
+                break;
+              }
+            }
+          }
+        }
       }
     }
+    this._tickTraffic(dt);
   }
 
   dispose() {
