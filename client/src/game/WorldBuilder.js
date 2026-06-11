@@ -334,18 +334,49 @@ export class WorldBuilder {
     // Distinct y per layer: meshes with different materials must never be
     // coplanar (z-fighting renders as black flicker at intersections).
     const mainGeos = [], laneGeos = [], pathGeos = [], walkGeos = [];
+    // surface-height grid so avatars/cars stand ON the asphalt, not in it
+    this.surfaceCells = new Map();
+    const CELL = 2.5;
+    const markSurface = (pts, halfW, h) => {
+      for (let i = 1; i < pts.length; i++) {
+        const [ax, az] = pts[i - 1], [bx, bz] = pts[i];
+        const len = Math.hypot(bx - ax, bz - az);
+        for (let d = 0; d <= len; d += CELL * 0.8) {
+          const x = ax + ((bx - ax) * d) / (len || 1);
+          const z = az + ((bz - az) * d) / (len || 1);
+          const r = Math.ceil(halfW / CELL);
+          const gx0 = Math.floor(x / CELL), gz0 = Math.floor(z / CELL);
+          for (let gx = gx0 - r; gx <= gx0 + r; gx++) {
+            for (let gz = gz0 - r; gz <= gz0 + r; gz++) {
+              const cx = (gx + 0.5) * CELL, cz = (gz + 0.5) * CELL;
+              if (Math.hypot(cx - x, cz - z) > halfW + CELL * 0.6) continue;
+              const k = gx + "," + gz;
+              if ((this.surfaceCells.get(k) ?? 0) < h) this.surfaceCells.set(k, h);
+            }
+          }
+        }
+      }
+    };
+    this._surfaceCell = CELL;
     for (const r of this.data.roads) {
       if (r.p.length < 2) continue;
       try {
         if (r.t === "path") {
           // below the roads so crossings don't paint stripes on the asphalt
           pathGeos.push(ribbonGeometry(r.p, r.w, 0.135, 3));
+          markSurface(r.p, r.w / 2, 0.135);
         } else {
-          if (r.w >= 7) laneGeos.push(ribbonGeometry(r.p, r.w, 0.17, 12));
-          else mainGeos.push(ribbonGeometry(r.p, r.w, 0.15, 12));
+          if (r.w >= 7) {
+            laneGeos.push(ribbonGeometry(r.p, r.w, 0.17, 12));
+            markSurface(r.p, r.w / 2, 0.17);
+          } else {
+            mainGeos.push(ribbonGeometry(r.p, r.w, 0.15, 12));
+            markSurface(r.p, r.w / 2, 0.15);
+          }
           if (r.w >= 5.5 && r.w <= 11) {
             // sidewalk strip peeking out on both sides (skip highways)
             walkGeos.push(ribbonGeometry(r.p, r.w + 3.4, 0.11, 2.2));
+            markSurface(r.p, (r.w + 3.4) / 2, 0.11);
           }
         }
       } catch { /* skip */ }
@@ -1424,7 +1455,8 @@ export class WorldBuilder {
     spots.forEach((s, i) => {
       eu.set(0, s.ry, 0);
       q.setFromEuler(eu);
-      m.compose(new THREE.Vector3(s.x, 0, s.z), q, new THREE.Vector3(1, 1, 1));
+      // park on the asphalt surface, not under it
+      m.compose(new THREE.Vector3(s.x, this.surfaceY ? this.surfaceY(s.x, s.z) : 0, s.z), q, new THREE.Vector3(1, 1, 1));
       body.setMatrixAt(i, m);
       cabin.setMatrixAt(i, m);
       wheels.setMatrixAt(i, m);
@@ -1544,7 +1576,7 @@ export class WorldBuilder {
     const q = new THREE.Quaternion();
     const eu = new THREE.Euler();
     pillars.forEach((p, i) => {
-      m.makeTranslation(p.x, 0, p.z);
+      m.makeTranslation(p.x, this.surfaceY(p.x, p.z), p.z);
       pMesh.setMatrixAt(i, m);
       cMesh.setMatrixAt(i, m);
     });
@@ -1553,7 +1585,7 @@ export class WorldBuilder {
       eu.set(0, rr.ry, 0);
       q.setFromEuler(eu);
       scl.set(1, 1, rr.len);
-      m.compose(new THREE.Vector3(rr.x, 0, rr.z), q, scl);
+      m.compose(new THREE.Vector3(rr.x, this.surfaceY(rr.x, rr.z), rr.z), q, scl);
       rMesh.setMatrixAt(i, m);
       tMesh.setMatrixAt(i, m);
     });
@@ -1671,7 +1703,7 @@ export class WorldBuilder {
     const heads = new THREE.InstancedMesh(headGeo, headMat, spots.length);
     const m = new THREE.Matrix4();
     spots.forEach(([x, z], i) => {
-      m.makeTranslation(x, 0, z);
+      m.makeTranslation(x, this.surfaceY ? this.surfaceY(x, z) : 0, z);
       poles.setMatrixAt(i, m);
       heads.setMatrixAt(i, m);
     });
@@ -1751,6 +1783,13 @@ export class WorldBuilder {
   }
 
   groundHeight() { return 0; }
+
+  // what you're standing on: road, sidewalk, path or bare ground
+  surfaceY(x, z) {
+    if (!this.surfaceCells) return 0;
+    const c = this._surfaceCell;
+    return this.surfaceCells.get(Math.floor(x / c) + "," + Math.floor(z / c)) ?? 0.02;
+  }
 
   tick(t, dt) {
     for (const fn of this.animated) fn(t, dt);

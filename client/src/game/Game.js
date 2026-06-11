@@ -26,9 +26,10 @@ const CHAMP_AXIS = { x: 0.62, z: 0.78 };
 const USE_PHOTOREAL = false;
 
 export class Game {
-  constructor({ container, role, name }) {
+  constructor({ container, role, name, outfit = 0 }) {
     this.role = role;
     this.name = name;
+    this.outfit = outfit;
     this.container = container;
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
@@ -56,7 +57,7 @@ export class Game {
     this.controls = new Controls(this.camera, this.renderer.domElement);
     this.effects = new Effects(this.scene);
 
-    this.avatar = new Avatar(role, name);
+    this.avatar = new Avatar(role, name, { outfit });
     this.scene.add(this.avatar.group);
 
     // soft key light that follows the couple so they read clearly at dusk
@@ -143,7 +144,7 @@ export class Game {
   }
 
   _spawnRemote(state) {
-    const avatar = new Avatar(state.role, state.name);
+    const avatar = new Avatar(state.role, state.name, { outfit: state.outfit ?? 0 });
     avatar.group.position.set(state.x, state.y, state.z);
     this.scene.add(avatar.group);
     this.remote = { avatar, target: state, name: state.name, heading: state.ry };
@@ -551,6 +552,10 @@ export class Game {
         const k = gy < this.groundY ? Math.min(1, dt * 14) : Math.min(1, dt * 9);
         this.groundY += (gy - this.groundY) * k;
       }
+    } else if (this.world.surfaceY) {
+      // stylized city: stand on whatever surface is underfoot (road/sidewalk)
+      const sy = this.world.surfaceY(p.x, p.z);
+      this.groundY += (sy - this.groundY) * Math.min(1, dt * 14);
     } else {
       this.groundY = 0;
     }

@@ -212,9 +212,14 @@
       <h1>Our Little World</h1>
       <div class="sub">Boston · Tangerang · Paris<br/>Two homes, one meeting place.</div>
       <input id="name-input" placeholder="your name" maxlength="16" autocomplete="off" />
-      <div class="roles">
+      <div class="roles" id="role-row">
         <button class="role" data-role="you">Play as Him 💙</button>
         <button class="role" data-role="her">Play as Her 🩷</button>
+      </div>
+      <div id="outfit-row" style="display:none">
+        <div class="sub" style="margin:14px 0 10px">what are you wearing tonight?</div>
+        <div id="outfit-options" class="roles" style="flex-direction:column; gap:8px"></div>
+        <button id="outfit-back" style="background:none;border:none;color:var(--cream);opacity:.55;font-size:12px;margin-top:10px;cursor:pointer">← back</button>
       </div>
       <div class="status" id="login-status"></div>
     </div>

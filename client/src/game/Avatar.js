@@ -1,22 +1,46 @@
-// Cute low-poly chibi avatars, built from primitives. role: "you" | "her"
+// Chibi avatars — modeled on the real couple, with outfits from their
+// actual wardrobe, plus randomizable looks for NPCs so a restaurant
+// doesn't feel like a hall of clones.
 import * as THREE from "three";
 
-const LOOKS = {
+// ---- the two of them ----
+const BASE = {
   you: {
-    skin: 0xf0c8a0, hair: 0x2b2118, shirt: 0x3d6fd8, pants: 0x2a2d3a, shoes: 0x44362c,
-    hairstyle: "short",
+    skin: 0xe8c19c, hair: 0x18120e, hairstyle: "short",
   },
   her: {
-    skin: 0xf2cfa8, hair: 0x1f1812, shirt: 0xff7ba6, pants: 0xf3e4d0, shoes: 0xd8d0c8,
-    hairstyle: "long",
+    skin: 0xf2d8bc, hair: 0x251a11, hairstyle: "long",
   },
+};
+
+// outfits photographed from real life
+export const OUTFITS = {
+  you: [
+    { label: "white shirt 👔", shirt: 0xf2efe8, pants: 0x1d1d22, shoes: 0xeeeeee, collar: 0xf2efe8 },
+    { label: "beige jacket 🧥", shirt: 0xccb795, pants: 0x1d1d22, shoes: 0xeeeeee, collar: 0x33281e },
+    { label: "grey hoodie 🥷", shirt: 0xd6d6d8, pants: 0x232327, shoes: 0xeeeeee, hood: true },
+  ],
+  her: [
+    { label: "black top + satin 🤍", shirt: 0x211e20, pants: 0xe6d7b8, shoes: 0xf0f0f0 },
+    { label: "brown blazer 🤎", shirt: 0x6e4f38, pants: 0x1d1d22, shoes: 0xf0f0f0 },
+    { label: "white skirt 🌸", shirt: 0x211e20, pants: 0xf0e9da, shoes: 0xf0f0f0, skirt: 0xf0e9da },
+  ],
 };
 
 function lambert(color) { return new THREE.MeshLambertMaterial({ color }); }
 
 export class Avatar {
-  constructor(role = "you", name = "") {
-    const look = LOOKS[role] || LOOKS.you;
+  // opts: { outfit: index into OUTFITS[role], npcLook: {skin,hair,shirt,pants,shoes,hairstyle,scale} }
+  constructor(role = "you", name = "", opts = {}) {
+    const base = BASE[role] || BASE.you;
+    const outfit = OUTFITS[role]?.[opts.outfit ?? 0] ?? OUTFITS.you[0];
+    const look = {
+      skin: base.skin, hair: base.hair, hairstyle: base.hairstyle,
+      shirt: outfit.shirt, pants: outfit.pants, shoes: outfit.shoes,
+      collar: outfit.collar, hood: outfit.hood, skirt: outfit.skirt,
+      scale: 1,
+      ...(opts.npcLook || {}),
+    };
     this.role = role;
     this.group = new THREE.Group();
     this.walkPhase = 0;
@@ -26,13 +50,13 @@ export class Avatar {
     const body = new THREE.Group();
     this.body = body;
     this.group.add(body);
+    if (look.scale !== 1) this.group.scale.setScalar(look.scale);
 
     // legs
     this.legL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.5, 0.24), lambert(look.pants));
     this.legR = this.legL.clone();
     this.legL.position.set(-0.14, 0.25, 0);
     this.legR.position.set(0.14, 0.25, 0);
-    // pivot at hip: shift geometry down
     for (const leg of [this.legL, this.legR]) {
       leg.geometry = leg.geometry.clone();
       leg.geometry.translate(0, -0.25, 0);
@@ -43,7 +67,7 @@ export class Avatar {
 
     // shoes
     const shoeGeo = new THREE.BoxGeometry(0.24, 0.12, 0.34);
-    shoeGeo.translate(0, -0.5, 0.04);
+    shoeGeo.translate(0, -0.47, 0.04);
     const shoeL = new THREE.Mesh(shoeGeo, lambert(look.shoes));
     const shoeR = shoeL.clone();
     this.legL.add(shoeL);
@@ -54,9 +78,22 @@ export class Avatar {
     torso.position.y = 0.8;
     torso.castShadow = true;
     body.add(torso);
-    // skirt for her
-    if (role === "her") {
-      const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.38, 0.3, 8), lambert(look.shirt));
+
+    // collar accent (his jackets) — a thin band at the neckline
+    if (look.collar && look.collar !== look.shirt) {
+      const collar = new THREE.Mesh(new THREE.BoxGeometry(0.57, 0.09, 0.36), lambert(look.collar));
+      collar.position.y = 1.07;
+      body.add(collar);
+    }
+    // hoodie hood resting on the back
+    if (look.hood) {
+      const hood = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.18, 0.14), lambert(look.shirt));
+      hood.position.set(0, 1.04, -0.22);
+      body.add(hood);
+    }
+    // skirt
+    if (look.skirt) {
+      const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.4, 0.32, 8), lambert(look.skirt));
       skirt.position.y = 0.52;
       body.add(skirt);
     }
@@ -69,14 +106,13 @@ export class Avatar {
     this.armL.position.set(-0.37, 1.04, 0);
     this.armR.position.set(0.37, 1.04, 0);
     this.armL.castShadow = this.armR.castShadow = true;
-    // hands
     const handGeo = new THREE.SphereGeometry(0.09, 6, 5);
     handGeo.translate(0, -0.48, 0);
     this.armL.add(new THREE.Mesh(handGeo, lambert(look.skin)));
     this.armR.add(new THREE.Mesh(handGeo.clone(), lambert(look.skin)));
     body.add(this.armL, this.armR);
 
-    // head — big and round (chibi!)
+    // head
     const head = new THREE.Group();
     head.position.y = 1.18;
     this.head = head;
@@ -90,53 +126,82 @@ export class Avatar {
       const eye = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 6), lambert(0x1a1416));
       eye.position.set(ex, 0.32, 0.3);
       head.add(eye);
-      const shine = new THREE.Mesh(new THREE.SphereGeometry(0.012, 4, 4), new THREE.MeshLambertMaterial({ color: 0x707070 }));
-      shine.position.set(ex + 0.015, 0.345, 0.337);
-      head.add(shine);
     }
-    // blush
-    for (const ex of [-0.2, 0.2]) {
-      const blush = new THREE.Mesh(
-        new THREE.CircleGeometry(0.05, 8),
-        new THREE.MeshBasicMaterial({ color: 0xff9d9d, transparent: true, opacity: 0.55 })
-      );
-      blush.position.set(ex, 0.24, 0.305);
-      blush.lookAt(blush.position.clone().multiplyScalar(2).add(new THREE.Vector3(0, 0.24, 0.8)));
-      head.add(blush);
+    // blush for her & feminine NPCs
+    if (look.hairstyle === "long" || look.hairstyle === "bun") {
+      for (const ex of [-0.2, 0.2]) {
+        const blush = new THREE.Mesh(
+          new THREE.CircleGeometry(0.05, 8),
+          new THREE.MeshBasicMaterial({ color: 0xe89a96, transparent: true, opacity: 0.4, toneMapped: true })
+        );
+        blush.position.set(ex, 0.24, 0.305);
+        blush.lookAt(blush.position.clone().multiplyScalar(2).add(new THREE.Vector3(0, 0.24, 0.8)));
+        head.add(blush);
+      }
     }
 
-    // hair
+    // hair styles
+    const hairM = lambert(look.hair);
     if (look.hairstyle === "short") {
+      // his: short black hair, a little volume up top and a soft fringe
       const cap = new THREE.Mesh(
-        new THREE.SphereGeometry(0.36, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55),
-        lambert(look.hair)
+        new THREE.SphereGeometry(0.365, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.52),
+        hairM
+      );
+      cap.position.y = 0.36;
+      head.add(cap);
+      const top = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.12, 0.3), hairM);
+      top.position.set(0, 0.62, 0.02);
+      head.add(top);
+      const fringe = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.12, 0.1), hairM);
+      fringe.position.set(0, 0.53, 0.26);
+      fringe.rotation.x = 0.25;
+      head.add(fringe);
+      const sideL = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.18, 0.22), hairM);
+      sideL.position.set(-0.32, 0.4, 0.05);
+      head.add(sideL);
+      head.add((() => { const s = sideL.clone(); s.position.x = 0.32; return s; })());
+    } else if (look.hairstyle === "bun") {
+      const cap = new THREE.Mesh(
+        new THREE.SphereGeometry(0.36, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.6),
+        hairM
       );
       cap.position.y = 0.34;
       head.add(cap);
-      const fringe = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.1, 0.12), lambert(look.hair));
-      fringe.position.set(0, 0.52, 0.26);
-      head.add(fringe);
-    } else {
+      const bun = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6), hairM);
+      bun.position.set(0, 0.6, -0.24);
+      head.add(bun);
+    } else if (look.hairstyle === "buzz") {
       const cap = new THREE.Mesh(
-        new THREE.SphereGeometry(0.37, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.6),
-        lambert(look.hair)
+        new THREE.SphereGeometry(0.345, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.5),
+        hairM
       );
       cap.position.y = 0.33;
       head.add(cap);
-      const back = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.75, 0.18), lambert(look.hair));
-      back.position.set(0, 0.05, -0.26);
+    } else {
+      // her: long dark hair, middle part, strands framing the face
+      const cap = new THREE.Mesh(
+        new THREE.SphereGeometry(0.37, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.62),
+        hairM
+      );
+      cap.position.y = 0.33;
+      head.add(cap);
+      const back = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.85, 0.16), hairM);
+      back.position.set(0, -0.02, -0.27);
       head.add(back);
       for (const sx of [-1, 1]) {
-        const strand = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.55, 0.14), lambert(look.hair));
-        strand.position.set(sx * 0.3, 0.05, 0.02);
+        const strand = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.62, 0.13), hairM);
+        strand.position.set(sx * 0.3, 0.0, 0.06);
         head.add(strand);
+        const front = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.3, 0.08), hairM);
+        front.position.set(sx * 0.24, 0.32, 0.24);
+        front.rotation.z = -sx * 0.18;
+        head.add(front);
       }
     }
     body.add(head);
 
-    // name tag
     if (name) this.setName(name);
-
     this.group.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   }
 
@@ -185,7 +250,6 @@ export class Avatar {
     const font = "500 26px 'Avenir Next', system-ui";
     const measure = document.createElement("canvas").getContext("2d");
     measure.font = font;
-    // word-wrap to ~220px
     const words = String(text).split(" ");
     const lines = [];
     let line = "";
@@ -229,7 +293,6 @@ export class Avatar {
     }, 5200);
   }
 
-  // speed = horizontal m/s, dt seconds
   animate(dt, speed, t) {
     this.speedSmooth += (speed - this.speedSmooth) * Math.min(1, dt * 10);
     const s = this.speedSmooth;
@@ -241,10 +304,10 @@ export class Avatar {
       this.legR.rotation.x = -Math.sin(this.walkPhase) * swing;
       this.armL.rotation.x = -Math.sin(this.walkPhase) * swing * 0.8;
       this.armR.rotation.x = Math.sin(this.walkPhase) * swing * 0.8;
-      this.body.position.y = Math.abs(Math.sin(this.walkPhase)) * 0.06;
+      // lift with the stride so feet plant on the surface instead of under it
+      this.body.position.y = 0.05 + Math.abs(Math.sin(this.walkPhase)) * 0.06;
       this.head.rotation.z = Math.sin(this.walkPhase * 0.5) * 0.03;
     } else {
-      // idle: gentle breathing
       const damp = Math.min(1, dt * 8);
       this.legL.rotation.x += -this.legL.rotation.x * damp;
       this.legR.rotation.x += -this.legR.rotation.x * damp;
@@ -275,4 +338,22 @@ export class Avatar {
       }
     });
   }
+}
+
+// a believable stranger: random skin/hair/outfit/height
+export function randomNpcLook(rng) {
+  const skins = [0xf2d8bc, 0xe8c19c, 0xd9a877, 0xc08850, 0x8d5a33, 0x6b4226];
+  const hairs = [0x18120e, 0x251a11, 0x3a2a18, 0x584026, 0x1f1f24, 0x6e6258, 0x9a8a76];
+  const shirts = [0x6a4a5e, 0x3a5a4a, 0x46506e, 0x7a5a36, 0x555a44, 0x8a3a3e, 0x2e4a66, 0x9a8a6a];
+  const pantsC = [0x1d1d22, 0x32383e, 0x4a4038, 0x5a5e66, 0x6e6256];
+  const styles = ["short", "long", "bun", "buzz"];
+  return {
+    skin: skins[Math.floor(rng() * skins.length)],
+    hair: hairs[Math.floor(rng() * hairs.length)],
+    shirt: shirts[Math.floor(rng() * shirts.length)],
+    pants: pantsC[Math.floor(rng() * pantsC.length)],
+    shoes: [0xeeeeee, 0x2a2a2e, 0x6e5a44][Math.floor(rng() * 3)],
+    hairstyle: styles[Math.floor(rng() * styles.length)],
+    scale: 0.92 + rng() * 0.16,
+  };
 }

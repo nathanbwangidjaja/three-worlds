@@ -12,6 +12,7 @@ export class Player extends Schema {
     this.world = "boston"; // boston | tangerang | paris
     this.name = "?";
     this.role = "you";    // "you" (him) or "her"
+    this.outfit = 0;      // index into the wardrobe
   }
 }
 type("number")(Player.prototype, "x");
@@ -22,6 +23,7 @@ type("number")(Player.prototype, "speed");
 type("string")(Player.prototype, "world");
 type("string")(Player.prototype, "name");
 type("string")(Player.prototype, "role");
+type("number")(Player.prototype, "outfit");
 
 export class WorldState extends Schema {
   constructor() {
@@ -85,6 +87,7 @@ export class WorldRoom extends Room {
     player.role = options?.role === "her" ? "her" : "you";
     player.name = String(options?.name ?? (player.role === "her" ? "Her" : "Him")).slice(0, 24);
     player.world = typeof options?.world === "string" ? options.world : "boston";
+    player.outfit = Number.isFinite(options?.outfit) ? Math.max(0, Math.min(4, options.outfit)) : 0;
     if (Number.isFinite(options?.x)) player.x = options.x;
     if (Number.isFinite(options?.z)) player.z = options.z;
     this.state.players.set(client.sessionId, player);

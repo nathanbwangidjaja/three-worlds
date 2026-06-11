@@ -2,6 +2,7 @@ import { Net } from "./net.js";
 import { Game } from "./game/Game.js";
 import * as UI from "./game/ui.js";
 import { STORY } from "./game/story.js";
+import { OUTFITS } from "./game/Avatar.js";
 
 const loginEl = document.getElementById("login");
 const statusEl = document.getElementById("login-status");
@@ -28,13 +29,39 @@ function showFatal(message) {
   document.getElementById("loading-pct").textContent = "";
 }
 
+// step 1: pick who you are → step 2: pick what you're wearing → play
+let started = false;
 document.querySelectorAll("#login button.role").forEach((btn) => {
-  btn.addEventListener("click", async () => {
+  btn.addEventListener("click", () => {
     const role = btn.dataset.role;
+    document.getElementById("role-row").style.display = "none";
+    const row = document.getElementById("outfit-row");
+    const opts = document.getElementById("outfit-options");
+    opts.innerHTML = "";
+    OUTFITS[role].forEach((o, i) => {
+      const b = document.createElement("button");
+      b.className = "role";
+      b.textContent = o.label;
+      b.onclick = () => begin(role, i);
+      opts.appendChild(b);
+    });
+    row.style.display = "block";
+  });
+});
+document.getElementById("outfit-back").addEventListener("click", () => {
+  document.getElementById("outfit-row").style.display = "none";
+  document.getElementById("role-row").style.display = "flex";
+});
+
+async function begin(role, outfit) {
+  {
+    if (started) return;
+    started = true;
     const name = (nameInput.value || (role === "her" ? "Her" : "Him")).trim();
     statusEl.classList.remove("err");
 
     if (!webglAvailable()) {
+      started = false;
       statusEl.classList.add("err");
       statusEl.textContent =
         "This browser can't do 3D (WebGL is off). Enable “Use graphics acceleration” in your browser settings, or try Chrome/Safari/Firefox.";
@@ -45,7 +72,7 @@ document.querySelectorAll("#login button.role").forEach((btn) => {
 
     let online = true;
     try {
-      await Net.connect({ role, name, world: HOME_WORLD[role] });
+      await Net.connect({ role, name, world: HOME_WORLD[role], outfit });
     } catch (err) {
       console.warn("[net] could not reach server, playing offline:", err);
       online = false;
@@ -61,6 +88,7 @@ document.querySelectorAll("#login button.role").forEach((btn) => {
         container: document.getElementById("app"),
         role,
         name,
+        outfit,
       });
     } catch (err) {
       console.error("[game] renderer failed:", err);
@@ -113,5 +141,5 @@ document.querySelectorAll("#login button.role").forEach((btn) => {
     if (!online) {
       UI.addSystem("offline mode — start the server and refresh to play together");
     }
-  });
-});
+  }
+}

@@ -10,9 +10,9 @@ export const Net = {
   connected: false,
   listeners: { chat: [], emote: [], players: [], event: [] },
 
-  async connect({ role, name, world, x, z }) {
+  async connect({ role, name, world, x, z, outfit }) {
     const client = new Client(SERVER_URL);
-    this.room = await client.joinOrCreate("world", { role, name, world, x, z });
+    this.room = await client.joinOrCreate("world", { role, name, world, x, z, outfit });
     this.sessionId = this.room.sessionId;
     this.connected = true;
 
@@ -36,7 +36,7 @@ export const Net = {
     const others = [];
     this.room.state.players.forEach((p, id) => {
       if (id !== this.sessionId) {
-        others.push({ id, x: p.x, y: p.y, z: p.z, ry: p.ry, speed: p.speed, world: p.world, name: p.name, role: p.role });
+        others.push({ id, x: p.x, y: p.y, z: p.z, ry: p.ry, speed: p.speed, world: p.world, name: p.name, role: p.role, outfit: p.outfit });
       }
     });
     this.listeners.players.forEach((fn) => fn(others));

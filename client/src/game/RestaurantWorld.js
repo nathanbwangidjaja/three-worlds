@@ -5,7 +5,7 @@
 // cards together, then ask for the bill and head back out into the city.
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { Avatar } from "./Avatar.js";
+import { Avatar, randomNpcLook } from "./Avatar.js";
 import { CUISINE_THEMES, CUISINE_MENUS, inferCuisine } from "./cuisines.js";
 import { TABLE_TALK } from "./story.js";
 import { Net } from "../net.js";
@@ -185,7 +185,7 @@ export class RestaurantWorld {
     const pendants = Math.min(4, Math.floor(W / 7));
     for (let i = 0; i < pendants; i++) {
       const x = -W / 2 + (W / (pendants + 1)) * (i + 1);
-      const lamp = new THREE.PointLight(t.light, 26, 14, 1.9);
+      const lamp = new THREE.PointLight(t.light, 12, 12, 1.9);
       lamp.position.set(x, 3.3, 0);
       this.group.add(lamp);
       const shade = new THREE.Mesh(
@@ -194,7 +194,10 @@ export class RestaurantWorld {
       );
       shade.position.set(x, 3.45, 0);
       this.group.add(shade);
-      const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), new THREE.MeshBasicMaterial({ color: t.light }));
+      const bulb = new THREE.Mesh(
+        new THREE.SphereGeometry(0.08, 8, 6),
+        new THREE.MeshLambertMaterial({ color: 0x8a7a5e, emissive: t.light, emissiveIntensity: 0.45 })
+      );
       bulb.position.set(x, 3.32, 0);
       this.group.add(bulb);
     }
@@ -296,7 +299,7 @@ export class RestaurantWorld {
       });
     }
     // pass: plates waiting under warm light
-    const passLight = new THREE.PointLight(0xffb24a, 14, 6, 2);
+    const passLight = new THREE.PointLight(0xffb24a, 8, 6, 2);
     passLight.position.set(0, 2.2, -D / 2 + 2.2);
     this.group.add(passLight);
   }
@@ -414,27 +417,41 @@ export class RestaurantWorld {
   }
 
   makeNpc(role, name, seated = false, chef = false) {
-    const avatar = new Avatar(role, "");
     const { rng } = this;
-    // restyle so staff/guests don't look like the two of you
-    const shirt = chef ? 0xf2f0ea : [0x6a4a5e, 0x3a5a4a, 0x46506e, 0x7a5a36, 0x555a44][Math.floor(rng() * 5)];
-    avatar.group.traverse((o) => {
-      if (o.isMesh && o.material && o.material.color) {
-        const hex = o.material.color.getHex();
-        if (hex === 0x3d6fd8 || hex === 0xff7ba6) { o.material = o.material.clone(); o.material.color.setHex(shirt); }
-      }
-    });
+    // every NPC is a different person: skin, hair, build, clothes
+    const look = randomNpcLook(rng);
+    if (chef) { look.shirt = 0xf2f0ea; look.pants = 0x2a2a2e; look.hairstyle = rng() > 0.5 ? "buzz" : "short"; }
+    const avatar = new Avatar(role, "", { npcLook: look });
     if (chef) {
       const hat = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.25, 0.34, 10), new THREE.MeshLambertMaterial({ color: 0xf6f4ee }));
       hat.position.y = 1.85;
       avatar.group.add(hat);
     }
+    // staff wear an apron
+    if (!chef && !seated) {
+      const apron = new THREE.Mesh(
+        new THREE.BoxGeometry(0.46, 0.5, 0.05),
+        new THREE.MeshLambertMaterial({ color: 0x32302c })
+      );
+      apron.position.set(0, 0.72, 0.19);
+      avatar.group.add(apron);
+    }
     if (name) avatar.setName(name);
     if (seated) avatar.group.position.y = 0.22;
     this.scene.add(avatar.group);
-    const npc = { avatar, name, target: null, speed: 0, chef, seated };
+    const npc = { avatar, name, path: [], speed: 0, chef, seated };
     this.npcs.push(npc);
     return npc;
+  }
+
+  // route an NPC down the row corridor first, then across — so they walk
+  // the aisles instead of phasing through tables
+  routeNpc(npc, x, z, onArrive = null) {
+    const g = npc.avatar.group.position;
+    npc.path = [];
+    if (Math.abs(g.z - z) > 0.6) npc.path.push(new THREE.Vector3(g.x, 0, z));
+    npc.path.push(new THREE.Vector3(x, 0, z));
+    npc.onArrive = onArrive;
   }
 
   // ------------------------------------------------------ dining flow
@@ -445,9 +462,13 @@ export class RestaurantWorld {
     if (this.state === "enter" && near(this.host.avatar.group, 3.2)) {
       this.state = "walking";
       this.stateT = 0;
+      this.hostArrived = false;
       this.host.avatar.say("Right this way! 🚶");
       const tb = this.yourTable;
-      this.host.target = new THREE.Vector3(tb.x, 0, tb.z + 2.0);
+      this.routeNpc(this.host, tb.x, tb.z + 2.0, () => {
+        this.hostArrived = true;
+        this.host.avatar.say("Here you are — best seat in the house ✨");
+      });
       UI.addSystem("follow the host to your table");
       return true;
     }
@@ -497,17 +518,16 @@ export class RestaurantWorld {
     g.controls.dist = 4.8;
     g.controls.pitch = 0.5;
     this.host.avatar.say("Your server will be right over 😊");
-    this.host.target = new THREE.Vector3(2.2, 0, this.D / 2 - 3.4); // back to the stand
+    this.routeNpc(this.host, 2.2, this.D / 2 - 3.4); // back to the stand
     // server approaches
     setTimeout(() => {
       if (this.state !== "seated") return;
-      this.server.target = new THREE.Vector3(tb.x, 0, tb.z + 1.7);
-      this.server.onArrive = () => {
+      this.routeNpc(this.server, tb.x, tb.z + 1.7, () => {
         this.server.avatar.say(`Welcome in! What can I get you two tonight?`);
         this.state = "ordering";
         this.stateT = 0;
         UI.openMenu(this.poi.n, this.cuisine, this.menu, (picked) => this.placeOrder(picked));
-      };
+      });
     }, 1600);
   }
 
@@ -520,26 +540,23 @@ export class RestaurantWorld {
     setTimeout(() => this.server.avatar.say("Excellent choice! Coming right up 📝"), 900);
     // server walks the order to the kitchen pass
     setTimeout(() => {
-      this.server.target = new THREE.Vector3(0, 0, -this.D / 2 + 3.2);
-      this.server.onArrive = () => {
+      this.routeNpc(this.server, 0, -this.D / 2 + 3.2, () => {
         this.chefs?.forEach((ch) => ch.avatar.say("Oui chef! 🔥"));
-      };
+      });
     }, 1700);
     // food is ready after a short cook
     setTimeout(() => {
       if (this.state !== "waiting") return;
       const tb = this.yourTable;
-      this.server.target = new THREE.Vector3(tb.x, 0, tb.z + 1.7);
-      this.server.onArrive = () => {
+      this.routeNpc(this.server, tb.x, tb.z + 1.7, () => {
         this.server.avatar.say("Bon appétit! 🍽");
         const spots = [-0.3, 0.3, 0, -0.15, 0.15];
         this.order.slice(0, 5).forEach((item, i) => this.placeFood(tb, item[2], spots[i]));
         this.state = "eating";
         this.stateT = 0;
         UI.addSystem("press T to draw a conversation card 💬 — press E later for the bill");
-        this.server.target = new THREE.Vector3(-this.W / 2 + 2.5, 0, -this.D / 2 + 3.4);
-        this.server.onArrive = null;
-      };
+        this.routeNpc(this.server, -this.W / 2 + 2.5, -this.D / 2 + 3.4);
+      });
     }, 9000);
   }
 
@@ -563,7 +580,7 @@ export class RestaurantWorld {
     this.state = "billing";
     this.stateT = 0;
     const tb = this.yourTable;
-    this.server.target = new THREE.Vector3(tb.x, 0, tb.z + 1.7);
+    this.routeNpc(this.server, tb.x, tb.z + 1.7);
     this.server.onArrive = () => {
       const total = this.order.reduce((s, it) => s + it[1], 0);
       const currency = this.city === "paris" ? "€" : this.city === "tangerang" ? "$" : "$";
@@ -577,8 +594,7 @@ export class RestaurantWorld {
         g.avatar.group.position.y = 0;
         g.controls.pos.set(tb.x + 1.05, 0, tb.z + 1.4);
         UI.addSystem("dinner's on the two of you forever 💛 — head to the door when ready");
-        this.server.target = new THREE.Vector3(-this.W / 2 + 2.5, 0, -this.D / 2 + 3.4);
-        this.server.onArrive = null;
+        this.routeNpc(this.server, -this.W / 2 + 2.5, -this.D / 2 + 3.4);
       });
     };
   }
@@ -604,28 +620,28 @@ export class RestaurantWorld {
   tick(t, dt) {
     for (const fn of this.animated) fn(t, dt);
     this.stateT += dt;
-    // npc walking
+    // npc walking along their aisle paths
     for (const npc of this.npcs) {
       const g = npc.avatar.group;
-      if (npc.target) {
-        const dx = npc.target.x - g.position.x;
-        const dz = npc.target.z - g.position.z;
+      const wp = npc.path?.[0];
+      if (wp) {
+        const dx = wp.x - g.position.x;
+        const dz = wp.z - g.position.z;
         const dist = Math.hypot(dx, dz);
-        if (dist > 0.25) {
+        if (dist > 0.22) {
           const sp = 2.6;
           g.position.x += (dx / dist) * sp * dt;
           g.position.z += (dz / dist) * sp * dt;
           g.rotation.y = Math.atan2(dx, dz);
           npc.speed = sp;
         } else {
-          npc.target = null;
-          npc.speed = 0;
-          if (npc === this.host && this.state === "walking") {
-            this.hostArrived = true;
-            this.host.avatar.say("Here you are — best seat in the house ✨");
+          npc.path.shift();
+          if (!npc.path.length) {
+            npc.speed = 0;
+            const cb = npc.onArrive;
+            npc.onArrive = null;
+            cb?.();
           }
-          npc.onArrive?.();
-          npc.onArrive = null;
         }
       } else {
         npc.speed = 0;
@@ -636,10 +652,6 @@ export class RestaurantWorld {
         npc.avatar.armR.rotation.x = -0.9 + Math.sin(t * 7 + g.position.x) * 0.5;
         npc.avatar.armL.rotation.x = -0.6 + Math.cos(t * 5.2 + g.position.x) * 0.3;
       }
-    }
-    // host walks toward table during "walking"
-    if (this.state === "walking" && !this.hostArrived && this.host.target === null) {
-      this.hostArrived = true;
     }
   }
 
