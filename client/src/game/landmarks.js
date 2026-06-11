@@ -602,3 +602,95 @@ export function buildPicnic(x, z) {
   const tick = (t) => { candle.intensity = 5.4 + Math.sin(t * 9.3) * 0.9 + Math.sin(t * 23.7) * 0.4; };
   return { group, tick };
 }
+
+// ----------------------------------------------------------- wayfinding
+// A soft vertical light beam + bobbing emoji marker so you can spot the
+// interesting things (the summit lift, a guide, the date car) from afar.
+export function buildBeacon(x, z, emoji, color = 0xffd27a, h = 22) {
+  const group = new THREE.Group();
+  const beam = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.5, 1.0, h, 10, 1, true),
+    new THREE.MeshBasicMaterial({
+      color, transparent: true, opacity: 0.16, side: THREE.DoubleSide,
+      depthWrite: false, blending: THREE.AdditiveBlending,
+    })
+  );
+  beam.position.y = h / 2;
+  group.add(beam);
+
+  const cv = document.createElement("canvas");
+  cv.width = cv.height = 128;
+  const ctx = cv.getContext("2d");
+  ctx.font = "92px serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(emoji, 64, 72);
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: new THREE.CanvasTexture(cv), transparent: true, depthWrite: false,
+  }));
+  spr.scale.setScalar(2.4);
+  spr.position.y = 4.0;
+  group.add(spr);
+  group.position.set(x, 0, z);
+  const tick = (t) => {
+    spr.position.y = 4.0 + Math.sin(t * 2.2) * 0.35;
+    beam.material.opacity = 0.13 + (Math.sin(t * 2.8) + 1) * 0.035;
+  };
+  return { group, tick };
+}
+
+// The summit lift: a little golden cage at the tower leg you can actually see
+export function buildLiftKiosk(x, z, ry = 0) {
+  const group = new THREE.Group();
+  group.position.set(x, 0, z);
+  group.rotation.y = ry;
+  const gold = new THREE.MeshLambertMaterial({ color: 0x8a6a30, emissive: 0x6a4a14, emissiveIntensity: 0.5 });
+  const dark = new THREE.MeshLambertMaterial({ color: 0x2a2118 });
+
+  for (const px of [-1.1, 1.1]) {
+    for (const pz of [-1.1, 1.1]) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.16, 3.2, 0.16), gold);
+      post.position.set(px, 1.6, pz);
+      group.add(post);
+    }
+  }
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.14, 2.7), gold);
+  roof.position.y = 3.25;
+  group.add(roof);
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.1, 2.5), dark);
+  floor.position.y = 0.05;
+  group.add(floor);
+  // lattice side rails
+  for (const side of [-1, 1]) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.0, 2.3), gold);
+    rail.position.set(side * 1.1, 0.6, 0);
+    group.add(rail);
+  }
+
+  // glowing sign
+  const cv = document.createElement("canvas");
+  cv.width = 512; cv.height = 96;
+  const ctx = cv.getContext("2d");
+  ctx.fillStyle = "#241c10";
+  ctx.fillRect(0, 0, 512, 96);
+  ctx.strokeStyle = "#caa64e";
+  ctx.lineWidth = 5;
+  ctx.strokeRect(6, 6, 500, 84);
+  ctx.fillStyle = "#ffe9b0";
+  ctx.font = "bold 52px Georgia, serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("ASCENSEUR · SOMMET", 256, 50);
+  const sign = new THREE.Mesh(
+    new THREE.PlaneGeometry(3.4, 0.64),
+    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv), side: THREE.DoubleSide })
+  );
+  sign.position.set(0, 3.7, 0);
+  group.add(sign);
+
+  const lamp = new THREE.PointLight(0xffd9a0, 6, 9, 1.9);
+  lamp.position.set(0, 2.6, 0);
+  group.add(lamp);
+  const tick = (t) => { lamp.intensity = 5.4 + Math.sin(t * 3.4) * 0.8; };
+  return { group, tick };
+}

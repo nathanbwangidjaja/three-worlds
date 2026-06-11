@@ -11,6 +11,7 @@ import {
 } from "./textures.js";
 import { TUNING, STYLE_DEFS } from "./cityTuning.js";
 import { isRestaurant } from "./cuisines.js";
+import { modelParts, pickModel, TRIM_MAT } from "./cars.js";
 
 const TEXTURE_FACTORIES = {
   facade: facadeTexture,
@@ -34,6 +35,13 @@ function hashStr(s) {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
   return h >>> 0;
+}
+
+// oriented rectangle → collision polygon (cars, fences, benches)
+export function rectPoly(cx, cz, halfW, halfL, ry) {
+  const s = Math.sin(ry), c = Math.cos(ry);
+  return [[-halfW, -halfL], [halfW, -halfL], [halfW, halfL], [-halfW, halfL]]
+    .map(([x, z]) => [cx + x * c + z * s, cz - x * s + z * c]);
 }
 
 function pointInPoly(x, z, pts) {
@@ -1075,6 +1083,7 @@ export class WorldBuilder {
     const eu = new THREE.Euler();
     trees.forEach(([x, z], idx) => {
       const s = 0.7 + rng() * 0.9;
+      this.addCollider(rectPoly(x, z, 0.3 * s, 0.3 * s, 0), 2.2);
       eu.set(0, rng() * Math.PI * 2, 0);
       q.setFromEuler(eu);
       m.compose(new THREE.Vector3(x, 0, z), q, new THREE.Vector3(s, s, s));
@@ -1259,6 +1268,8 @@ export class WorldBuilder {
       const q = new THREE.Quaternion();
       const eu = new THREE.Euler();
       benchSpots.forEach((s, i) => {
+        // block walking through the backrest, leave the seat face open to sit
+        s.collider = this.addCollider(rectPoly(s.x, s.z, 0.95, 0.1, s.ry), 1.1);
         eu.set(0, s.ry, 0);
         q.setFromEuler(eu);
         m.compose(new THREE.Vector3(s.x, 0, s.z), q, new THREE.Vector3(1, 1, 1));
@@ -1306,6 +1317,7 @@ export class WorldBuilder {
       const posters = new THREE.InstancedMesh(posterGeo, posterMat, colSpots.length);
       const m = new THREE.Matrix4();
       colSpots.forEach(([x, z], i) => {
+        this.addCollider(rectPoly(x, z, 0.6, 0.6, 0), 3.4);
         m.makeTranslation(x, 0, z);
         bodies.setMatrixAt(i, m);
         caps.setMatrixAt(i, m);
@@ -1351,6 +1363,7 @@ export class WorldBuilder {
     const eu = new THREE.Euler();
     spots.forEach(([x, z], i) => {
       const s = 0.85 + rng() * 0.5;
+      this.addCollider(rectPoly(x, z, 0.45 * s, 0.45 * s, 0), 3);
       eu.set(0, rng() * Math.PI * 2, (rng() - 0.5) * 0.08);
       q.setFromEuler(eu);
       m.compose(new THREE.Vector3(x, 0, z), q, new THREE.Vector3(s, s, s));
@@ -1390,6 +1403,7 @@ export class WorldBuilder {
     const eu = new THREE.Euler();
     trees.forEach(([x, z], idx) => {
       const s = 0.7 + rng() * 0.8;
+      this.addCollider(rectPoly(x, z, 0.28 * s, 0.28 * s, 0), 2.5);
       eu.set((rng() - 0.5) * 0.14, rng() * Math.PI * 2, (rng() - 0.5) * 0.14);
       q.setFromEuler(eu);
       m.compose(new THREE.Vector3(x, 0, z), q, new THREE.Vector3(s, s, s));
@@ -1403,22 +1417,26 @@ export class WorldBuilder {
   }
 
   // ----------------------------------------------------------------- cars
+  // Real recognizable models (see cars.js), parked along the curbs.
+  // Every one of them can be driven — Game wakes a spot up into a live car.
   buildCars() {
     if (!this.theme.cars) return;
-    const { rng } = this;
+    const { rng, data } = this;
+    const cap = data.radius > 1200 ? 330 : 180;
     const spots = [];
-    for (const r of this.data.roads) {
+    for (const r of data.roads) {
       if (r.t !== "road" || r.w < 6) continue;
       let acc = 0;
-      for (let i = 1; i < r.p.length && spots.length < 150; i++) {
+      for (let i = 1; i < r.p.length && spots.length < cap; i++) {
         const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
         const segLen = Math.hypot(bx - ax, bz - az);
         acc += segLen;
-        if (acc > 30) {
+        if (acc > 26) {
           acc = 0;
-          if (rng() > 0.45) continue;
+          if (rng() > 0.5) continue;
           const t = rng();
           const x = ax + (bx - ax) * t, z = az + (bz - az) * t;
+          if (Math.hypot(x, z) > data.radius - 15) continue; // stay inside the drivable world
           const dirA = Math.atan2(bx - ax, bz - az);
           const nx = -(bz - az) / segLen, nz = (bx - ax) / segLen;
           const side = rng() > 0.5 ? 1 : -1;
@@ -1429,46 +1447,63 @@ export class WorldBuilder {
           });
         }
       }
-      if (spots.length >= 150) break;
+      if (spots.length >= cap) break;
     }
     if (!spots.length) return;
 
-    const bodyGeo = new THREE.BoxGeometry(1.78, 0.62, 4.3);
-    bodyGeo.translate(0, 0.55, 0);
-    const cabinGeo = new THREE.BoxGeometry(1.6, 0.55, 2.2);
-    cabinGeo.translate(0, 1.12, -0.25);
-    const wheelGeo = mergeGeometries([
-      new THREE.BoxGeometry(1.9, 0.34, 0.36).translate(0, 0.18, 1.32),
-      new THREE.BoxGeometry(1.9, 0.34, 0.36).translate(0, 0.18, -1.32),
-    ], false);
+    // deterministic model + paint per spot (both players see the same cars)
+    spots.forEach((s, i) => {
+      s.index = i;
+      s.model = pickModel(data.key, rng);
+      const { spec } = modelParts(s.model);
+      s.paint = spec.paints[Math.floor(rng() * spec.paints.length)];
+      s.y = this.surfaceY ? this.surfaceY(s.x, s.z) : 0;
+      s.collider = this.addCollider(
+        rectPoly(s.x, s.z, spec.dims[0] / 2 + 0.12, spec.dims[1] / 2 + 0.18, s.ry), 1.7);
+      s.taken = false;
+    });
+    this.carSpots = spots;
 
-    const bodyMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
-    const cabinMat = new THREE.MeshLambertMaterial({ color: this.theme.night ? 0x1c2230 : 0x202832 });
-    const wheelMat = new THREE.MeshLambertMaterial({ color: 0x16161a });
-
-    const body = new THREE.InstancedMesh(bodyGeo, bodyMat, spots.length);
-    body.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(spots.length * 3), 3);
-    const cabin = new THREE.InstancedMesh(cabinGeo, cabinMat, spots.length);
-    const wheels = new THREE.InstancedMesh(wheelGeo, wheelMat, spots.length);
-
-    const palette = (this.theme.carPalette ||
-      [0xbfc4cc, 0x8b9099, 0x4a4f58, 0x7a3a36, 0x36506e, 0xd8d4c8, 0x2e3a30])
-      .map((c) => new THREE.Color(c));
+    const byModel = {};
+    for (const s of spots) (byModel[s.model] ??= []).push(s);
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const eu = new THREE.Euler();
-    spots.forEach((s, i) => {
-      eu.set(0, s.ry, 0);
-      q.setFromEuler(eu);
-      // park on the asphalt surface, not under it
-      m.compose(new THREE.Vector3(s.x, this.surfaceY ? this.surfaceY(s.x, s.z) : 0, s.z), q, new THREE.Vector3(1, 1, 1));
-      body.setMatrixAt(i, m);
-      cabin.setMatrixAt(i, m);
-      wheels.setMatrixAt(i, m);
-      body.setColorAt(i, palette[Math.floor(rng() * palette.length)]);
-    });
-    body.castShadow = cabin.castShadow = true;
-    this.group.add(body, cabin, wheels);
+    const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+    this._carHide = (spot) => {
+      const im = this._carMeshes[spot.model];
+      if (!im) return;
+      im.paint.setMatrixAt(spot.slot, zero);
+      im.trim.setMatrixAt(spot.slot, zero);
+      im.paint.instanceMatrix.needsUpdate = true;
+      im.trim.instanceMatrix.needsUpdate = true;
+    };
+    this._carMeshes = {};
+    for (const [model, list] of Object.entries(byModel)) {
+      const { paintGeo, trimStaticGeo } = modelParts(model);
+      // clone: dispose() tears down per-world geometry, the cache must survive
+      const paint = new THREE.InstancedMesh(paintGeo.clone(), new THREE.MeshLambertMaterial({ color: 0xffffff }), list.length);
+      const trim = new THREE.InstancedMesh(trimStaticGeo.clone(), TRIM_MAT.clone(), list.length);
+      list.forEach((s, slot) => {
+        s.slot = slot;
+        eu.set(0, s.ry, 0);
+        q.setFromEuler(eu);
+        m.compose(new THREE.Vector3(s.x, s.y, s.z), q, new THREE.Vector3(1, 1, 1));
+        paint.setMatrixAt(slot, m);
+        trim.setMatrixAt(slot, m);
+        paint.setColorAt(slot, new THREE.Color(s.paint));
+      });
+      paint.castShadow = true;
+      this.group.add(paint, trim);
+      this._carMeshes[model] = { paint, trim };
+    }
+  }
+
+  // a car drives away: hide its parked instance and lift its collider
+  takeCar(spot) {
+    spot.taken = true;
+    spot.collider.off = true;
+    this._carHide?.(spot);
   }
 
   // ------------------------------------------------------ cluster fences
@@ -1587,6 +1622,7 @@ export class WorldBuilder {
     });
     const scl = new THREE.Vector3();
     rails.forEach((rr, i) => {
+      this.addCollider(rectPoly(rr.x, rr.z, 0.14, rr.len / 2, rr.ry), 1.6);
       eu.set(0, rr.ry, 0);
       q.setFromEuler(eu);
       scl.set(1, 1, rr.len);
@@ -1708,6 +1744,7 @@ export class WorldBuilder {
     const heads = new THREE.InstancedMesh(headGeo, headMat, spots.length);
     const m = new THREE.Matrix4();
     spots.forEach(([x, z], i) => {
+      this.addCollider(rectPoly(x, z, 0.18, 0.18, 0), 4.4);
       m.makeTranslation(x, this.surfaceY ? this.surfaceY(x, z) : 0, z);
       poles.setMatrixAt(i, m);
       heads.setMatrixAt(i, m);
@@ -1784,9 +1821,19 @@ export class WorldBuilder {
     return grid.get(Math.floor(x / this._colCell) + "," + Math.floor(z / this._colCell)) ?? [];
   }
 
+  // register an obstacle after build (cars, tower legs, furniture).
+  // returns the poly so callers can toggle it off (a car being driven away).
+  addCollider(pts, h = 2.5) {
+    const poly = { pts, bbox: polyBBox(pts), h };
+    this.collisionPolys.push(poly);
+    this._colGrid = null; // lazily rebuilt on next query
+    return poly;
+  }
+
   blocked(x, z) {
     for (const i of this._polysNear(x, z)) {
-      const { pts, bbox } = this.collisionPolys[i];
+      const { pts, bbox, off } = this.collisionPolys[i];
+      if (off) continue;
       if (x < bbox.minX || x > bbox.maxX || z < bbox.minZ || z > bbox.maxZ) continue;
       if (pointInPoly(x, z, pts)) return true;
     }
@@ -1796,8 +1843,8 @@ export class WorldBuilder {
   // camera occlusion: is this point inside a building volume?
   blockedAt(x, z, y) {
     for (const i of this._polysNear(x, z)) {
-      const { pts, bbox, h } = this.collisionPolys[i];
-      if (h <= 0 || y > h) continue;
+      const { pts, bbox, h, off } = this.collisionPolys[i];
+      if (off || h <= 0 || y > h) continue;
       if (x < bbox.minX || x > bbox.maxX || z < bbox.minZ || z > bbox.maxZ) continue;
       if (pointInPoly(x, z, pts)) return true;
     }

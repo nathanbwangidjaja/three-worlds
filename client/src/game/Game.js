@@ -1,14 +1,15 @@
 import * as THREE from "three";
-import { WorldBuilder } from "./WorldBuilder.js";
+import { WorldBuilder, rectPoly } from "./WorldBuilder.js";
 import { THEMES, DESTINATIONS } from "./themes.js";
 import { STORY } from "./story.js";
-import { Avatar } from "./Avatar.js";
+import { Avatar, randomNpcLook } from "./Avatar.js";
 import { Controls } from "./Controls.js";
 import { Effects } from "./Effects.js";
 import {
   buildEiffelTower, buildTowerSparkles, buildHomeMarker, buildPortal, buildBench, buildPicnic,
-  buildGatehouse,
+  buildGatehouse, buildBeacon, buildLiftKiosk,
 } from "./landmarks.js";
+import { makeDriveCar, modelParts } from "./cars.js";
 import { RealWorld, PHOTOREAL_AVAILABLE, CITY_COORDS } from "./RealWorld.js";
 import { RestaurantWorld } from "./RestaurantWorld.js";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
@@ -81,6 +82,10 @@ export class Game {
     this.dataCache = {};
     this.groundY = 0;          // terrain height under the avatar (photoreal)
     this.extraSettleTimer = 0; // re-seat landmarks on streaming terrain
+    this.drive = null;         // we're in a car {spot, group, wheels, spec, seat, ...}
+    this.remoteCar = null;     // the partner's car, rendered locally
+    this.remoteCarState = null; // their latest car on/off event
+    this.liveCars = [];        // every woken-up car group (cleaned on travel)
 
     window.addEventListener("resize", () => {
       if (window.innerWidth < 2 || window.innerHeight < 2) return; // minimized/hidden
@@ -123,6 +128,18 @@ export class Game {
       if (m.id === Net.sessionId) return;
       if (m.kind === "topic" && this.world?.isInterior && m.data) {
         this.world.showTopicFromPartner(m.data.i, m.data.n);
+      }
+      if (m.kind === "car" && m.data) {
+        this.remoteCarState = m.data.on ? m.data : null;
+        this._syncRemoteCar(m.data);
+      }
+      if (m.kind === "hello") {
+        // partner just arrived somewhere — if we're driving, let them see it
+        if (this.drive) {
+          Net.sendEvent("car", {
+            i: this.drive.spot.index, on: true, seat: this.drive.seat, world: this.worldKey,
+          });
+        }
       }
     });
 
@@ -201,6 +218,10 @@ export class Game {
 
   _tryInteract() {
     const p = this.controls.pos;
+    if (this.drive) {
+      this.exitCar();
+      return;
+    }
     if (this.world?.isInterior) {
       this.world.interact(p);
       return;
@@ -226,6 +247,26 @@ export class Game {
         return;
       }
     }
+    // cars — every parked car is drivable
+    const spot = this._nearCarSpot(2.8);
+    if (spot) {
+      const partnerDriving = this.remoteCarState?.on &&
+        this.remoteCarState.seat === "driver" && this.remoteCarState.i === spot.index &&
+        this.remoteCarState.world === this.worldKey;
+      if (partnerDriving) this.enterCar(spot, "passenger");
+      else if (!spot.taken) this.enterCar(spot, "driver");
+    }
+  }
+
+  _nearCarSpot(range) {
+    if (!this.world?.carSpots) return null;
+    const p = this.controls.pos;
+    let best = null, bd = range;
+    for (const s of this.world.carSpots) {
+      const d = Math.hypot(s.x - p.x, s.z - p.z) - modelParts(s.model).spec.dims[1] / 2;
+      if (d < bd) { bd = d; best = s; }
+    }
+    return best;
   }
 
   // -------------------------------------------------------------- worlds
@@ -257,6 +298,10 @@ export class Game {
     const theme = THEMES[key];
 
     // tear down old world
+    if (this.drive) { this.drive.speed = 0; this.exitCar(); } // park + tell the partner
+    this.remoteCar = null;
+    for (const g of this.liveCars) this.scene.remove(g);
+    this.liveCars = [];
     this.effects.clear();
     this._removeRemote();
     for (const e of this.extras) this.scene.remove(e.group);
@@ -331,6 +376,10 @@ export class Game {
         UI.setPartnerStatus(STORY.partnerWorld(this.remoteState.name, THEMES[this.remoteState.world]?.title ?? ""));
       }
     }
+
+    // ask the partner to repeat anything we missed (like "I'm driving")
+    Net.sendEvent?.("hello", { world: key });
+    if (this.remoteCarState?.on) this._syncRemoteCar(this.remoteCarState);
   }
 
   _spawnPoint(key) {
@@ -376,9 +425,19 @@ export class Game {
         const eiffel = buildEiffelTower();
         eiffel.group.position.set(cx, 0, cz);
         // align tower base diagonals with the Seine-ish orientation
-        eiffel.group.rotation.y = Math.atan2(CHAMP_AXIS.x, CHAMP_AXIS.z);
+        const towerYaw = Math.atan2(CHAMP_AXIS.x, CHAMP_AXIS.z);
+        eiffel.group.rotation.y = towerYaw;
         addExtra(eiffel);
         this.eiffel = eiffel;
+        // the four iron legs are solid — you walk under the arches, not through them
+        if (this.world.addCollider) {
+          for (const [lx, lz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+            const px = 27.5 * lx, pz = 27.5 * lz;
+            const wx = cx + px * Math.cos(towerYaw) + pz * Math.sin(towerYaw);
+            const wz = cz - px * Math.sin(towerYaw) + pz * Math.cos(towerYaw);
+            this.world.addCollider(rectPoly(wx, wz, 6, 6, towerYaw), 60);
+          }
+        }
       }
 
       // plaque at the base (photoreal: just outside the real security fence)
@@ -391,12 +450,15 @@ export class Game {
         onInteract: () => UI.showDialog(STORY.eiffel.speaker, STORY.eiffel.pages),
       });
 
-      // the lift to the summit
+      // the lift to the summit — a real kiosk + light beam so it's findable
       if (!this.world.isPhotoreal) {
+        const liftX = this.towerCenter.x - CHAMP_AXIS.x * 30;
+        const liftZ = this.towerCenter.z - CHAMP_AXIS.z * 30;
+        addExtra(buildLiftKiosk(liftX, liftZ, Math.atan2(CHAMP_AXIS.x, CHAMP_AXIS.z)));
+        addExtra(buildBeacon(liftX, liftZ, "🛗", 0xffd27a, 55));
         this.interactables.push({
-          x: this.towerCenter.x - CHAMP_AXIS.x * 30,
-          z: this.towerCenter.z - CHAMP_AXIS.z * 30,
-          range: 9,
+          x: liftX, z: liftZ,
+          range: 7,
           prompt: "press E · ride to the summit 🛗",
           onInteract: () => this.enterSummit(),
         });
@@ -427,6 +489,7 @@ export class Game {
         // divided driveway just south of Jl. Jend. Sudirman, signs face the
         // avenue; the home marker waits inside the cluster
         addExtra(buildGatehouse(-0.5, 14, 0));
+        this.world.addCollider?.(rectPoly(-0.5, 14, 3.4, 3.4, 0), 4);
         [hx, hz] = this.world.findClearSpot(2, 44, 4);
       } else {
         [hx, hz] = this.world.findClearSpot(0, 0, 4);
@@ -480,6 +543,54 @@ export class Game {
       this.extras.push(portal);
       this.portals.push({ x: cpx, z: cpz, to: d.to });
     });
+
+    // --- a local who tells you where everything is ---
+    if (!this.world.isPhotoreal) {
+      const guideDefs = {
+        boston: { name: "Sam", pages: [
+          "welcome to Kendall Square 💙 every glowing restaurant sign is a real place — walk to its door and press E for a dinner date.",
+          "see a car you like? walk up to ANY parked car and press E to drive it. W/S is gas and brake, A/D steers — and your favorite person can hop in beside you 🚗",
+          "the glowing rings are portals to Paris and Tangerang ✈️ — or press M to fly from anywhere.",
+        ] },
+        tangerang: { name: "Maya", pages: [
+          "selamat datang di Lippo Village 🩷 the white gatehouse on the avenue is Taman Beverly — her home is just inside.",
+          "any parked car can be driven: stand next to one and press E. take the Alphard, it's very Tangerang 😄 one of you drives, the other rides along.",
+          "restaurants with glowing signs are open for dinner dates, and the glowing portals fly you to Boston or Paris ✈️",
+        ] },
+        paris: { name: "Léa", pages: [
+          "bienvenue à Paris 💛 see the golden beam at the tower's foot? that's the summit lift — press E there and ride up 276 meters.",
+          "the plaque, the green benches on the Champ de Mars, the cafés — anything glowing can be pressed with E. you can even sit together and watch the tower.",
+          "fancy a drive along the Seine? any parked car starts with E — the Mini is very Paris 😉",
+        ] },
+      };
+      const def = guideDefs[key];
+      if (def) {
+        const sp = this._spawnPoint(key);
+        const [gx, gz] = this.world.findClearSpot(sp[0] + 6, sp[1] - 4, 2);
+        let seed = key.length * 2654435761 + 97;
+        const grng = () => {
+          seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+          return seed / 4294967296;
+        };
+        const look = randomNpcLook(grng);
+        const role = look.hairstyle === "long" || look.hairstyle === "bun" ? "her" : "you";
+        const guide = new Avatar(role, `🧭 ${def.name}`, { npcLook: look });
+        const faceRy = Math.atan2(sp[0] - gx, sp[1] - gz);
+        guide.group.position.set(gx, this.world.surfaceY ? this.world.surfaceY(gx, gz) : 0, gz);
+        guide.group.rotation.y = faceRy;
+        this.scene.add(guide.group);
+        this.extras.push({ group: guide.group, tick: (t, dt) => {
+          guide.group.rotation.y = faceRy + Math.sin(t * 0.4) * 0.35;
+          guide.animate(dt ?? 0.016, 0, t);
+        } });
+        addExtra(buildBeacon(gx, gz, "🧭", 0x8fd0ff, 13));
+        this.interactables.push({
+          x: gx, z: gz, range: 3.4,
+          prompt: `press E · ask ${def.name} what's around 🧭`,
+          onInteract: () => UI.showDialog(`🧭 ${def.name}`, def.pages),
+        });
+      }
+    }
   }
 
   // --------------------------------------------------------------- summit
@@ -534,6 +645,188 @@ export class Game {
     }
   }
 
+  // ------------------------------------------------------------------ cars
+  enterCar(spot, seat = "driver") {
+    let car;
+    if (seat === "passenger") {
+      if (!this.remoteCar) return;
+      car = this.remoteCar; // ride in the partner's car
+    } else {
+      car = spot.parkedCar;
+      spot.parkedCar = null;
+      if (!car) {
+        car = makeDriveCar(spot.model, spot.paint);
+        car.group.position.set(spot.x, spot.y ?? 0, spot.z);
+        car.group.rotation.y = spot.ry;
+        this.scene.add(car.group);
+        this.liveCars.push(car.group);
+      }
+      this.world.takeCar(spot);
+      if (spot.collider) spot.collider.off = true;
+      car.headlight.intensity = THEMES[this.worldKey]?.night ? 5 : 1.4;
+    }
+    this.drive = { ...car, spot, seat, speed: 0, steer: 0, heading: car.group.rotation.y };
+    // the follow-light at full power blooms white paint out — the car lights itself
+    this.avatarLight.intensity = THEMES[this.worldKey]?.night ? 6 : 4;
+    this.controls.pos.set(car.group.position.x, 0, car.group.position.z);
+    this.controls.yaw = car.group.rotation.y + Math.PI;
+    this.controls.pitch = 0.3;
+    this.controls.dist = 10;
+    if (!car.spec.openTop) this.avatar.group.visible = false;
+    UI.addSystem(seat === "driver"
+      ? `🚗 ${car.spec.name} — W/S gas & brake, A/D steer, E to park`
+      : `💕 riding along in the ${car.spec.name} — E to hop out`);
+    Net.sendEvent("car", { i: spot.index, on: true, seat, world: this.worldKey });
+  }
+
+  exitCar(silent = false) {
+    const d = this.drive;
+    if (!d) return;
+    if (d.seat === "driver" && Math.abs(d.speed) > 2.5 && !silent) {
+      UI.addSystem("slow down a little first 😅");
+      return;
+    }
+    this.drive = null;
+    this.avatar.group.visible = true;
+    this.avatarLight.intensity = THEMES[this.worldKey]?.night ? 30 : 9;
+    const g = d.group;
+    if (d.seat === "driver") {
+      d.headlight.intensity = 0;
+      // the car stays parked right here — re-enterable, and solid again
+      const s = d.spot;
+      s.x = g.position.x; s.z = g.position.z; s.ry = g.rotation.y; s.y = g.position.y;
+      s.parkedCar = { group: g, wheels: d.wheels, spec: d.spec, headlight: d.headlight };
+      s.taken = false;
+      s.collider = this.world.addCollider(
+        rectPoly(s.x, s.z, d.spec.dims[0] / 2 + 0.12, d.spec.dims[1] / 2 + 0.18, s.ry), 1.7);
+      if (!silent) Net.sendEvent("car", {
+        i: s.index, on: false, x: +s.x.toFixed(2), z: +s.z.toFixed(2), ry: +s.ry.toFixed(3),
+        world: this.worldKey,
+      });
+    } else if (!silent) {
+      Net.sendEvent("car", { i: d.spot.index, on: false, seat: "passenger", world: this.worldKey });
+    }
+    // step out beside the car
+    const side = d.seat === "driver" ? -1 : 1;
+    const ox = g.position.x + Math.cos(g.rotation.y) * side * 1.7;
+    const oz = g.position.z - Math.sin(g.rotation.y) * side * 1.7;
+    const [cx, cz] = this.world.findClearSpot ? this.world.findClearSpot(ox, oz, 1.5) : [ox, oz];
+    this.controls.pos.set(cx, 0, cz);
+  }
+
+  // render/clear the partner's car from their events
+  _syncRemoteCar(data) {
+    if (!this.world || this.world.isInterior || !this.world.carSpots) return;
+    if (data.on && data.seat === "driver" && data.world === this.worldKey) {
+      const spot = this.world.carSpots[data.i];
+      if (!spot || this.remoteCar) return;
+      let car = spot.parkedCar;
+      spot.parkedCar = null;
+      if (!car) {
+        car = makeDriveCar(spot.model, spot.paint);
+        car.group.position.set(spot.x, spot.y ?? 0, spot.z);
+        car.group.rotation.y = spot.ry;
+        this.scene.add(car.group);
+        this.liveCars.push(car.group);
+      }
+      this.world.takeCar(spot);
+      if (spot.collider) spot.collider.off = true;
+      car.headlight.intensity = THEMES[this.worldKey]?.night ? 5 : 1.4;
+      this.remoteCar = { ...car, spot };
+    } else if (!data.on && data.seat !== "passenger") {
+      if (this.remoteCar) {
+        const car = this.remoteCar;
+        const s = car.spot;
+        if (data.x !== undefined) {
+          car.group.position.set(data.x, this.world.surfaceY ? this.world.surfaceY(data.x, data.z) : 0, data.z);
+          car.group.rotation.y = data.ry;
+          s.x = data.x; s.z = data.z; s.ry = data.ry; s.y = car.group.position.y;
+        }
+        car.headlight.intensity = 0;
+        s.parkedCar = { group: car.group, wheels: car.wheels, spec: car.spec, headlight: car.headlight };
+        s.taken = false;
+        s.collider = this.world.addCollider(
+          rectPoly(s.x, s.z, car.spec.dims[0] / 2 + 0.12, car.spec.dims[1] / 2 + 0.18, s.ry), 1.7);
+        this.remoteCar = null;
+      }
+      if (this.remote) this.remote.avatar.group.visible = true;
+      // our driver left while we were riding shotgun — hop out too
+      if (this.drive?.seat === "passenger") this.exitCar(true);
+    }
+  }
+
+  // seat an avatar inside a car (open tops show you, closed cars hide you)
+  _seatAvatarInCar(avatar, car, seat) {
+    const spec = car.spec;
+    if (!spec.openTop) { avatar.group.visible = false; return; }
+    avatar.group.visible = true;
+    const heading = car.group.rotation.y;
+    const lx = (seat === "driver" ? -1 : 1) * (spec.seatX ?? 0.4);
+    const lz = spec.seatZ ?? -0.35;
+    const sin = Math.sin(heading), cos = Math.cos(heading);
+    avatar.group.position.set(
+      car.group.position.x + lx * cos + lz * sin,
+      car.group.position.y + (spec.seatY ?? 0.7) - 0.34,
+      car.group.position.z - lx * sin + lz * cos
+    );
+    avatar.group.rotation.y = heading;
+  }
+
+  // car physics + chase camera for the frame we're driving
+  _driveFrame(dt) {
+    const d = this.drive;
+    const p = this.controls.pos;
+    if (d.seat === "passenger") {
+      if (!this.remoteCar) { this.exitCar(true); return; }
+      const g = this.remoteCar.group;
+      p.set(g.position.x, 0, g.position.z);
+      this._seatAvatarInCar(this.avatar, this.remoteCar, "passenger");
+      return;
+    }
+    const k = this.controls.keys;
+    const ok = this.controls.enabled;
+    const fwd = ok ? ((k.has("KeyW") || k.has("ArrowUp") ? 1 : 0) - (k.has("KeyS") || k.has("ArrowDown") ? 1 : 0)) : 0;
+    const steerIn = ok ? ((k.has("KeyD") || k.has("ArrowRight") ? 1 : 0) - (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0)) : 0;
+    const accel = fwd > 0 ? 9 : fwd < 0 ? (d.speed > 0.5 ? -14 : -6) : 0;
+    d.speed += accel * dt;
+    if (!fwd) d.speed *= Math.exp(-dt * 1.6);
+    d.speed = Math.max(-6, Math.min(16, d.speed));
+    d.steer += (steerIn * 0.55 - d.steer) * Math.min(1, dt * 7);
+    d.heading -= d.steer * dt * Math.max(-1.7, Math.min(1.7, d.speed * 0.24));
+
+    const nx = p.x + Math.sin(d.heading) * d.speed * dt;
+    const nz = p.z + Math.cos(d.heading) * d.speed * dt;
+    const hw = d.spec.dims[0] / 2 - 0.08, hl = d.spec.dims[1] / 2 - 0.08;
+    const sin = Math.sin(d.heading), cos = Math.cos(d.heading);
+    let hit = false;
+    for (const [lx, lz] of [[hw, hl], [-hw, hl], [hw, -hl], [-hw, -hl]]) {
+      if (this.world.blocked(nx + lx * cos + lz * sin, nz - lx * sin + lz * cos)) { hit = true; break; }
+    }
+    if (!hit && Math.hypot(nx, nz) < this.world.data.radius + 25) {
+      p.x = nx; p.z = nz;
+    } else if (hit) {
+      d.speed = -d.speed * 0.25; // soft bump
+    } else {
+      d.speed = 0;
+    }
+
+    const sy = this.world.surfaceY ? this.world.surfaceY(p.x, p.z) : 0;
+    d.group.position.set(p.x, sy, p.z);
+    d.group.rotation.y = d.heading;
+    for (const w of d.wheels) {
+      w.spin.rotation.x += (d.speed / w.r) * dt;
+      if (w.front) w.pivot.rotation.y += (-d.steer * 1.1 - w.pivot.rotation.y) * Math.min(1, dt * 8);
+    }
+    // chase camera settles behind the car once you're moving
+    if (Math.abs(d.speed) > 1.2) {
+      let dy = d.heading + Math.PI - this.controls.yaw;
+      while (dy > Math.PI) dy -= Math.PI * 2;
+      while (dy < -Math.PI) dy += Math.PI * 2;
+      this.controls.yaw += dy * Math.min(1, dt * 1.7);
+    }
+    this._seatAvatarInCar(this.avatar, d, "driver");
+  }
+
   // ---------------------------------------------------------- restaurants
   async enterRestaurant(door) {
     const city = this.worldKey;
@@ -543,6 +836,9 @@ export class Game {
 
     this.effects.clear();
     this._removeRemote();
+    this.remoteCar = null;
+    for (const g of this.liveCars) this.scene.remove(g);
+    this.liveCars = [];
     for (const e of this.extras) this.scene.remove(e.group);
     this.extras = [];
     this.portals = [];
@@ -613,15 +909,20 @@ export class Game {
     // local movement — in photoreal mode a steep rise in terrain is a wall
     const photoreal = !!this.world.isPhotoreal;
     const headY = this.groundY + 2.5;
-    const blocked = this.summit
-      ? (x, z) => Math.hypot(x - this.towerCenter.x, z - this.towerCenter.z) > 3.6 // stay on the platform
-      : photoreal
-        ? (x, z) => {
-            const gy = this.world.groundHeight(x, z, true, headY);
-            return gy !== null && gy - this.groundY > 2.0;
-          }
-        : (x, z) => this.world.blocked(x, z);
-    const speed = this.controls.update(dt, blocked, this.world.data.radius);
+    let speed = 0;
+    if (this.drive) {
+      this._driveFrame(dt); // car physics owns the position this frame
+    } else {
+      const blocked = this.summit
+        ? (x, z) => Math.hypot(x - this.towerCenter.x, z - this.towerCenter.z) > 3.6 // stay on the platform
+        : photoreal
+          ? (x, z) => {
+              const gy = this.world.groundHeight(x, z, true, headY);
+              return gy !== null && gy - this.groundY > 2.0;
+            }
+          : (x, z) => this.world.blocked(x, z);
+      speed = this.controls.update(dt, blocked, this.world.data.radius);
+    }
     this.controls.enabled = !UI.dialogOpen() && !UI.chatOpen() && !UI.travelOpen() &&
       !UI.dineOpen() && !this.seatedAt;
 
@@ -653,18 +954,18 @@ export class Game {
       this.avatar.group.position.set(this.seatedAt.x, this.seatedAt.y ?? 0.22, this.seatedAt.z);
       this.avatar.group.rotation.y = this.seatedAt.ry;
       this.controls.yaw += dt * (this.seatedAt.bench ? 0.025 : 0.04); // slow cinematic drift
-    } else {
+    } else if (!this.drive) { // driving: _driveFrame already seated us in the car
       this.avatar.group.position.set(p.x, this.groundY + p.y, p.z);
     }
     this.avatarLight.position.set(p.x, this.groundY + p.y + 3.2, p.z);
-    // smooth heading turn — but never fight the chair while seated
-    if (!this.seatedAt) {
+    // smooth heading turn — but never fight the chair (or the car) while seated
+    if (!this.seatedAt && !this.drive) {
       let dh = this.controls.heading - this.avatar.group.rotation.y;
       while (dh > Math.PI) dh -= Math.PI * 2;
       while (dh < -Math.PI) dh += Math.PI * 2;
       this.avatar.group.rotation.y += dh * Math.min(1, dt * 12);
     }
-    this.avatar.animate(dt, this.seatedAt ? 0 : speed, t);
+    this.avatar.animate(dt, this.seatedAt || this.drive ? 0 : speed, t);
 
     this.controls.updateCamera(
       dt,
@@ -724,6 +1025,26 @@ export class Game {
       while (rdh < -Math.PI) rdh += Math.PI * 2;
       g.rotation.y += rdh * Math.min(1, dt * 10);
       r.avatar.animate(dt, tgt.speed, t);
+
+      // partner in a car: their car follows them, they sit inside it
+      const cs = this.remoteCarState;
+      if (cs?.on && cs.world === this.worldKey) {
+        if (cs.seat === "driver" && this.remoteCar) {
+          const car = this.remoteCar.group;
+          const prevX = car.position.x, prevZ = car.position.z;
+          car.position.set(
+            g.position.x,
+            this.world.surfaceY ? this.world.surfaceY(g.position.x, g.position.z) : 0,
+            g.position.z
+          );
+          car.rotation.y = g.rotation.y;
+          const moved = Math.hypot(car.position.x - prevX, car.position.z - prevZ);
+          for (const w of this.remoteCar.wheels) w.spin.rotation.x += moved / w.r;
+          this._seatAvatarInCar(r.avatar, this.remoteCar, "driver");
+        } else if (cs.seat === "passenger" && this.drive?.seat === "driver") {
+          this._seatAvatarInCar(r.avatar, this.drive, "passenger");
+        }
+      }
     }
 
     // network: send our position ~10x/s
@@ -741,22 +1062,38 @@ export class Game {
 
     // interaction prompt
     let prompt = null;
-    if (this.world.isInterior) {
+    if (this.drive) {
+      prompt = this.drive.seat === "passenger"
+        ? "press E · hop out 💕"
+        : Math.abs(this.drive.speed) < 2.5 ? "press E · park & step out 🚗" : null;
+    } else if (this.world.isInterior) {
       prompt = this.world.prompt(p);
     } else if (this.seatedAt?.bench) {
       prompt = "press E · stand up 🌙";
     } else if (this.summit) {
       prompt = "press E · ride back down 🛗";
     }
-    for (const it of this.interactables) {
-      if (prompt) break;
-      if (Math.hypot(it.x - p.x, it.z - p.z) < it.range) { prompt = it.prompt; break; }
-    }
-    if (!prompt) {
-      for (const portal of this.portals) {
-        if (Math.hypot(portal.x - p.x, portal.z - p.z) < 3.4) {
-          prompt = `press E · travel to ${THEMES[portal.to].title} ✈️`;
-          break;
+    if (!this.drive) {
+      for (const it of this.interactables) {
+        if (prompt) break;
+        if (Math.hypot(it.x - p.x, it.z - p.z) < it.range) { prompt = it.prompt; break; }
+      }
+      if (!prompt) {
+        for (const portal of this.portals) {
+          if (Math.hypot(portal.x - p.x, portal.z - p.z) < 3.4) {
+            prompt = `press E · travel to ${THEMES[portal.to].title} ✈️`;
+            break;
+          }
+        }
+      }
+      if (!prompt && !this.world.isInterior && !this.seatedAt && !this.summit) {
+        const spot = this._nearCarSpot(2.8);
+        if (spot) {
+          const partnerDriving = this.remoteCarState?.on &&
+            this.remoteCarState.seat === "driver" && this.remoteCarState.i === spot.index &&
+            this.remoteCarState.world === this.worldKey;
+          if (partnerDriving) prompt = `press E · hop in with ${this.remote?.name ?? "them"} 💕`;
+          else if (!spot.taken) prompt = `press E · drive the ${modelParts(spot.model).spec.name} 🚗`;
         }
       }
     }
