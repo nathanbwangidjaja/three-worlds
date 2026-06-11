@@ -63,6 +63,12 @@ function ptGrid(cell) {
   };
 }
 
+// motorways and their ramps — no parked cars, picket fences, street lamps
+// or crosswalks belong on the Jakarta–Merak toll
+function isHighway(r) {
+  return r.w === 13 || r.w === 8 || (r.n && /jalan tol/i.test(r.n));
+}
+
 // oriented rectangle → collision polygon (cars, fences, benches)
 export function rectPoly(cx, cz, halfW, halfL, ry) {
   const s = Math.sin(ry), c = Math.cos(ry);
@@ -1210,7 +1216,7 @@ export class WorldBuilder {
 
   // zebra crosswalks where side streets meet the big avenues
   buildCrosswalks() {
-    const big = this.data.roads.filter((r) => r.t === "road" && r.w >= 7.5);
+    const big = this.data.roads.filter((r) => r.t === "road" && r.w >= 7.5 && !isHighway(r));
     if (!big.length) return;
     const mouths = [];
     for (const r of this.data.roads) {
@@ -1471,7 +1477,7 @@ export class WorldBuilder {
     const cap = data.radius > 1200 ? 330 : 180;
     const spots = [];
     for (const r of data.roads) {
-      if (r.t !== "road" || r.w < 6) continue;
+      if (r.t !== "road" || r.w < 6 || isHighway(r)) continue; // nobody parks on the toll
       let acc = 0;
       for (let i = 1; i < r.p.length && spots.length < cap; i++) {
         const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
@@ -1558,7 +1564,7 @@ export class WorldBuilder {
   buildFences() {
     if (!this.theme.fillHouses) return;
     const data = this.data;
-    const big = data.roads.filter((r) => r.t === "road" && r.w >= 7.5);
+    const big = data.roads.filter((r) => r.t === "road" && r.w >= 7.5 && !isHighway(r));
     if (!big.length) return;
     // junction points of smaller roads → leave fence gaps there
     const junctionGrid = ptGrid(16);
@@ -1968,7 +1974,7 @@ export class WorldBuilder {
     const { rng } = this;
     const spots = [];
     for (const r of this.data.roads) {
-      if (r.t !== "road" || r.w < 6) continue;
+      if (r.t !== "road" || r.w < 6 || isHighway(r)) continue; // the toll has its own masts
       let acc = 0;
       for (let i = 1; i < r.p.length && spots.length < 320; i++) {
         const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];

@@ -1,12 +1,12 @@
 import * as THREE from "three";
 import { WorldBuilder, rectPoly } from "./WorldBuilder.js";
-import { THEMES, DESTINATIONS } from "./themes.js";
+import { THEMES } from "./themes.js";
 import { STORY } from "./story.js";
 import { Avatar, randomNpcLook } from "./Avatar.js";
 import { Controls } from "./Controls.js";
 import { Effects } from "./Effects.js";
 import {
-  buildEiffelTower, buildTowerSparkles, buildHomeMarker, buildPortal, buildBench, buildPicnic,
+  buildEiffelTower, buildTowerSparkles, buildHomeMarker, buildBench, buildPicnic,
   buildGatehouse, buildBeacon, buildLiftKiosk,
 } from "./landmarks.js";
 import { makeDriveCar, modelParts } from "./cars.js";
@@ -204,8 +204,13 @@ export class Game {
       if (e.code === "KeyE") this._tryInteract();
       if (e.code === "KeyT" && this.world?.isInterior) this.world.drawTopic();
       if (e.code === "KeyM") {
-        if (this.world?.isInterior) UI.addSystem("finish dinner first 😄 — the world can wait");
-        else UI.openTravel(this.worldKey, (to) => this.travel(to));
+        if (this.world?.isInterior) {
+          UI.addSystem(this.worldKey?.startsWith("c:")
+            ? "head outside first 😄 — the world can wait"
+            : "finish dinner first 😄 — the world can wait");
+        } else {
+          UI.openTravel(this.worldKey, (to) => this.travel(to));
+        }
       }
       if (e.code === "Digit1") this.emote("heart");
       if (e.code === "Digit2") this.emote("wave");
@@ -242,13 +247,6 @@ export class Game {
     for (const it of this.interactables) {
       if (Math.hypot(it.x - p.x, it.z - p.z) < it.range) {
         it.onInteract();
-        return;
-      }
-    }
-    // portals
-    for (const portal of this.portals) {
-      if (Math.hypot(portal.x - p.x, portal.z - p.z) < 3.4) {
-        this.travel(portal.to);
         return;
       }
     }
@@ -545,23 +543,8 @@ export class Game {
       }
     }
 
-    // --- portals ---
-    const dests = DESTINATIONS[key];
-    const portalColors = { boston: 0xffa94d, tangerang: 0x6de8a0, paris: 0xc77bff };
-    const anchor = key === "paris"
-      ? { x: this.towerCenter.x + CHAMP_AXIS.x * 120, z: this.towerCenter.z + CHAMP_AXIS.z * 120 }
-      : { x: 0, z: 0 };
-    dests.forEach((d, i) => {
-      const side = i === 0 ? -1 : 1;
-      // perpendicular to champ axis in paris, plain east-west elsewhere
-      const px = anchor.x + (key === "paris" ? -CHAMP_AXIS.z : 1) * side * 24;
-      const pz = anchor.z + (key === "paris" ? CHAMP_AXIS.x : 0.2) * side * 24 + (key === "paris" ? 0 : 14);
-      const [cpx, cpz] = this.world.findClearSpot(px, pz);
-      const portal = buildPortal(cpx, cpz, d.label, portalColors[d.to]);
-      this.scene.add(portal.group);
-      this.extras.push(portal);
-      this.portals.push({ x: cpx, z: cpz, to: d.to });
-    });
+    // (the old glowing travel rings are gone — sci-fi portals standing in
+    // real streets broke the realism. press M to fly between cities.)
 
     // --- a local who tells you where everything is ---
     if (!this.world.isPhotoreal) {
@@ -569,13 +552,13 @@ export class Game {
         boston: { name: "Sam", pages: [
           "welcome to Kendall Square 💙 every glowing restaurant sign is a real place — walk to its door and press E for a dinner date.",
           "see a car you like? walk up to ANY parked car and press E to drive it. W/S is gas and brake, A/D steers — and your favorite person can hop in beside you 🚗",
-          "the glowing rings are portals to Paris and Tangerang ✈️ — or press M to fly from anywhere.",
+          "press M whenever you want to fly to Paris or Tangerang ✈️ — no airport queues here.",
         ] },
         tangerang: { name: "Maya", pages: [
           "selamat datang di Lippo Village 🩷 the white gatehouse on the avenue is Taman Beverly — her home is just inside.",
           "any parked car can be driven: stand next to one and press E. take the Alphard, it's very Tangerang 😄 one of you drives, the other rides along.",
           "follow a 🎓 beam to visit her schools — SPH Lippo Village is south past the golf course, UPH is east by the big towers. you can walk every floor.",
-          "drive north and you'll hit the Jakarta–Merak toll road, gerbang tol and all 🛣️ — and the glowing portals still fly you to Boston or Paris ✈️",
+          "drive north and you'll hit the Jakarta–Merak toll road, gerbang tol and all 🛣️ — and press M any time to fly to Boston or Paris ✈️",
         ] },
         paris: { name: "Léa", pages: [
           "bienvenue à Paris 💛 see the golden beam at the tower's foot? that's the summit lift — press E there and ride up 276 meters.",
@@ -1166,14 +1149,6 @@ export class Game {
       for (const it of this.interactables) {
         if (prompt) break;
         if (Math.hypot(it.x - p.x, it.z - p.z) < it.range) { prompt = it.prompt; break; }
-      }
-      if (!prompt) {
-        for (const portal of this.portals) {
-          if (Math.hypot(portal.x - p.x, portal.z - p.z) < 3.4) {
-            prompt = `press E · travel to ${THEMES[portal.to].title} ✈️`;
-            break;
-          }
-        }
       }
       if (!prompt && !this.world.isInterior && !this.seatedAt && !this.summit) {
         const spot = this._nearCarSpot(2.8);
