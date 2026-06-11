@@ -1,6 +1,17 @@
+# dependencies & builds
 node_modules/
 dist/
+.vite/
+
+# secrets — API keys live in client/.env (copy from client/.env.example)
 .env
+.env.*
+!.env.example
+
+# scraped reference imagery (large, regenerate with tools/scrape-refs.js)
+refs/
+
+# local tooling & junk
+.claude/settings.local.json
 .DS_Store
 *.log
-refs/
