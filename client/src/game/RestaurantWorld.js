@@ -337,10 +337,11 @@ export class RestaurantWorld {
       const candle = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 0.14, 6), new THREE.MeshLambertMaterial({ color: 0xf0e8d8 }));
       candle.position.set(x, 0.88, z);
       this.group.add(candle);
-      const cl = new THREE.PointLight(0xffc46a, yours ? 1.7 : 1.3, 2.8, 2);
-      cl.position.set(x, 1.05, z);
+      // gentle flicker, raised away from the plates so food stays readable
+      const cl = new THREE.PointLight(0xffc46a, yours ? 0.85 : 0.6, 2.6, 2);
+      cl.position.set(x, 1.45, z);
       this.group.add(cl);
-      this.animated.push((tt) => { cl.intensity = (yours ? 1.55 : 1.2) + Math.sin(tt * 9.7 + x) * 0.3; });
+      this.animated.push((tt) => { cl.intensity = (yours ? 0.78 : 0.55) + Math.sin(tt * 9.7 + x) * 0.15; });
     }
     this.tables.push({ x, z, yours, foods: [] });
   }
@@ -349,7 +350,7 @@ export class RestaurantWorld {
     const g = new THREE.Group();
     const plate = new THREE.Mesh(
       new THREE.CylinderGeometry(0.2, 0.16, 0.03, 12),
-      new THREE.MeshLambertMaterial({ color: 0xf0ede4 })
+      new THREE.MeshLambertMaterial({ color: 0xcfc9bc })
     );
     g.add(plate);
     const col = new THREE.MeshLambertMaterial({ color: look.color });
@@ -599,12 +600,16 @@ export class RestaurantWorld {
     };
   }
 
-  // tables + walls only — staff may enter the kitchen, guests may not
+  // tables, walls — and the two of you. Staff walk around people too.
   _npcBlocked(x, z) {
     if (Math.abs(x) > this.W / 2 - 0.6 || Math.abs(z) > this.D / 2 - 0.6) return true;
     for (const tb of this.tables) {
       if (Math.hypot(tb.x - x, tb.z - z) < 1.25) return true;
     }
+    const me = this.game.avatar.group.position;
+    if (Math.hypot(me.x - x, me.z - z) < 0.8) return true;
+    const them = this.game.remote?.avatar.group.position;
+    if (them && Math.hypot(them.x - x, them.z - z) < 0.8) return true;
     return false;
   }
 

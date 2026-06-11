@@ -28,7 +28,7 @@ const CITIES = {
     name: "Paris",
     lat: 48.8583701,
     lon: 2.2944813,
-    radius: 700,
+    radius: 1800, // big enough that the view from the tower summit feels endless
   },
 };
 

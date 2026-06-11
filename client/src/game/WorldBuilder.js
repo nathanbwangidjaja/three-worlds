@@ -191,7 +191,9 @@ export class WorldBuilder {
   // ----------------------------------------------------------------- sky
   buildSky() {
     const { theme } = this;
-    const geo = new THREE.SphereGeometry(1600, 24, 16);
+    const skyR = Math.max(1600, this.data.radius * 1.9);
+    this.skyR = skyR;
+    const geo = new THREE.SphereGeometry(skyR, 24, 16);
     const mat = new THREE.ShaderMaterial({
       side: THREE.BackSide,
       depthWrite: false,
@@ -233,7 +235,7 @@ export class WorldBuilder {
       for (let i = 0; i < starCount; i++) {
         const thetaA = rng() * Math.PI * 2;
         const phi = Math.acos(1 - rng() * 0.85);
-        const r = 1500;
+        const r = skyR * 0.94;
         pos[i * 3] = r * Math.sin(phi) * Math.cos(thetaA);
         pos[i * 3 + 1] = r * Math.cos(phi) + 60;
         pos[i * 3 + 2] = r * Math.sin(phi) * Math.sin(thetaA);
@@ -653,12 +655,14 @@ export class WorldBuilder {
       const cat = b.c || "generic";
       const [bcx, bcz] = centroidOf(pts);
       const bArea = Math.abs(signedArea(pts));
+      const bDist = Math.hypot(bcx, bcz);
+      const far = bDist > 900; // skyline tier: simpler walls, no street-level dressing
 
       // hand-tuned building? route to its custom architectural style
       const rule = matchTuning(b.n, bcx, bcz, cat, bArea);
       const h = rule?.h ?? b.h;
       this.collisionPolys.push({ pts, bbox: polyBBox(pts), h });
-      this.buildingList.push({ pts, h, cat });
+      if (!far) this.buildingList.push({ pts, h, cat });
       let style, buf, tuned = null;
       if (rule) {
         tuned = STYLE_DEFS[rule.style];
@@ -697,7 +701,7 @@ export class WorldBuilder {
 
       // does this building get a ground-floor storefront band?
       const sfChance = tuned ? (tuned.storefront ? 1 : 0) : (sfCfg?.chance?.[cat] ?? 0);
-      const hasShop = shopMat && sfCfg && h > (sfCfg.bandH + 2.6) && rng() < sfChance;
+      const hasShop = !far && shopMat && sfCfg && h > (sfCfg.bandH + 2.6) && rng() < sfChance;
       const bandH = hasShop ? sfCfg.bandH : 0;
 
       // walls: one quad per footprint edge, UVs in meters.
@@ -722,7 +726,7 @@ export class WorldBuilder {
       // roof
       const area = Math.abs(signedArea(pts));
       const useHip = hipVariants.length && roofCfg.type === "hip" && area < roofCfg.maxArea && pts.length <= 9 && h < 12;
-      const useMansard = mansardCfg && h >= mansardCfg.minH && pts.length <= 14 && area > 60;
+      const useMansard = !far && mansardCfg && h >= mansardCfg.minH && pts.length <= 14 && area > 60;
       try {
         if (useHip) {
           const [cx, cz] = centroidOf(pts);
@@ -1264,6 +1268,7 @@ export class WorldBuilder {
       });
       seats.castShadow = true;
       this.group.add(seats, backs, legs);
+      this.benchSpots = benchSpots; // sittable! the couple can share one
     }
 
     // Morris columns along the avenues
@@ -1753,8 +1758,35 @@ export class WorldBuilder {
   }
 
   // -------------------------------------------------------------- queries
+  // spatial index: with 10k+ buildings a linear scan per frame would crawl
+  _collisionIndex() {
+    if (this._colGrid) return this._colGrid;
+    const CELL = 24;
+    const grid = new Map();
+    this.collisionPolys.forEach((poly, i) => {
+      const { bbox } = poly;
+      for (let gx = Math.floor(bbox.minX / CELL); gx <= Math.floor(bbox.maxX / CELL); gx++) {
+        for (let gz = Math.floor(bbox.minZ / CELL); gz <= Math.floor(bbox.maxZ / CELL); gz++) {
+          const k = gx + "," + gz;
+          let arr = grid.get(k);
+          if (!arr) { arr = []; grid.set(k, arr); }
+          arr.push(i);
+        }
+      }
+    });
+    this._colGrid = grid;
+    this._colCell = CELL;
+    return grid;
+  }
+
+  _polysNear(x, z) {
+    const grid = this._collisionIndex();
+    return grid.get(Math.floor(x / this._colCell) + "," + Math.floor(z / this._colCell)) ?? [];
+  }
+
   blocked(x, z) {
-    for (const { pts, bbox } of this.collisionPolys) {
+    for (const i of this._polysNear(x, z)) {
+      const { pts, bbox } = this.collisionPolys[i];
       if (x < bbox.minX || x > bbox.maxX || z < bbox.minZ || z > bbox.maxZ) continue;
       if (pointInPoly(x, z, pts)) return true;
     }
@@ -1763,7 +1795,8 @@ export class WorldBuilder {
 
   // camera occlusion: is this point inside a building volume?
   blockedAt(x, z, y) {
-    for (const { pts, bbox, h } of this.collisionPolys) {
+    for (const i of this._polysNear(x, z)) {
+      const { pts, bbox, h } = this.collisionPolys[i];
       if (h <= 0 || y > h) continue;
       if (x < bbox.minX || x > bbox.maxX || z < bbox.minZ || z > bbox.maxZ) continue;
       if (pointInPoly(x, z, pts)) return true;

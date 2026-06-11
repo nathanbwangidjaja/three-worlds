@@ -348,6 +348,13 @@ export class Avatar {
       );
       cap.position.y = 0.33;
       head.add(cap);
+      // rear hemisphere drops lower so there's no bald gap above the back panel
+      const backCap = new THREE.Mesh(
+        new THREE.SphereGeometry(0.372, 14, 10, Math.PI, Math.PI, 0, Math.PI * 0.72),
+        hairM
+      );
+      backCap.position.y = 0.31;
+      head.add(backCap);
       // side curtains overlap the cap edge and fall past the shoulders
       for (const sx of [-1, 1]) {
         const curtain = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.98, 0.32), hairM);

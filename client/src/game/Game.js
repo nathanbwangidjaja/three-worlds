@@ -205,6 +205,14 @@ export class Game {
       this.world.interact(p);
       return;
     }
+    if (this.seatedAt?.bench) {
+      this.standUp();
+      return;
+    }
+    if (this.summit) {
+      this.exitSummit();
+      return;
+    }
     for (const it of this.interactables) {
       if (Math.hypot(it.x - p.x, it.z - p.z) < it.range) {
         it.onInteract();
@@ -257,6 +265,7 @@ export class Game {
     this.interactables = [];
     this.eiffel = null;
     this.towerCenter = null;
+    this.summit = false;
     if (this.world) this.world.dispose();
     this.world = null;
     this.groundY = 0;
@@ -382,6 +391,17 @@ export class Game {
         onInteract: () => UI.showDialog(STORY.eiffel.speaker, STORY.eiffel.pages),
       });
 
+      // the lift to the summit
+      if (!this.world.isPhotoreal) {
+        this.interactables.push({
+          x: this.towerCenter.x - CHAMP_AXIS.x * 30,
+          z: this.towerCenter.z - CHAMP_AXIS.z * 30,
+          range: 9,
+          prompt: "press E · ride to the summit 🛗",
+          onInteract: () => this.enterSummit(),
+        });
+      }
+
       // bench + picnic on the Champ de Mars
       const bx = cx + CHAMP_AXIS.x * 175, bz = cz + CHAMP_AXIS.z * 175;
       const [bcx, bcz] = this.world.findClearSpot(bx, bz);
@@ -421,6 +441,17 @@ export class Game {
       });
     }
 
+    // --- sittable park benches: sit together and just enjoy ---
+    if (this.world.benchSpots?.length) {
+      for (const b of this.world.benchSpots) {
+        this.interactables.push({
+          x: b.x, z: b.z, range: 2.2,
+          prompt: "press E · sit together 🪑",
+          onInteract: () => this.sitOnBench(b),
+        });
+      }
+    }
+
     // --- restaurant doors: every real café/restaurant is enterable ---
     if (this.world.restaurantDoors?.length) {
       for (const door of this.world.restaurantDoors) {
@@ -449,6 +480,58 @@ export class Game {
       this.extras.push(portal);
       this.portals.push({ x: cpx, z: cpz, to: d.to });
     });
+  }
+
+  // --------------------------------------------------------------- summit
+  async enterSummit() {
+    const tc = this.towerCenter;
+    UI.fadeIn("🛗 going up… 276 meters");
+    await new Promise((r) => setTimeout(r, 900));
+    this.summit = true;
+    this.controls.pos.set(tc.x + 1.6, 0, tc.z + 1.6);
+    this.groundY = 277.6;
+    this.controls.pitch = 0.12;
+    this.controls.dist = 9;
+    this.camera.position.set(tc.x + 6, 283, tc.z + 6);
+    UI.addSystem("the whole city, just for you two ✨ — press E to ride back down");
+    UI.fadeOut();
+  }
+
+  async exitSummit() {
+    const tc = this.towerCenter;
+    UI.fadeIn("🛗 coming back down…");
+    await new Promise((r) => setTimeout(r, 700));
+    this.summit = false;
+    const [x, z] = this.world.findClearSpot(tc.x + CHAMP_AXIS.x * 45, tc.z + CHAMP_AXIS.z * 45, 3);
+    this.controls.pos.set(x, 0, z);
+    this.groundY = 0;
+    this.controls.dist = 9;
+    UI.fadeOut();
+  }
+
+  // -------------------------------------------------------------- benches
+  sitOnBench(b) {
+    // each of you gets a side of the bench, sitting shoulder to shoulder
+    const side = this.role === "her" ? -0.45 : 0.45;
+    const sx = b.x + Math.cos(b.ry) * side;
+    const sz = b.z - Math.sin(b.ry) * side;
+    this.controls.pos.set(sx, 0, sz);
+    this.seatedAt = { x: sx, z: sz, ry: b.ry, y: 0.27, bench: true };
+    this.avatar.group.position.set(sx, 0.27, sz);
+    this.avatar.group.rotation.y = b.ry;
+    // camera settles behind the bench, looking where you're looking
+    this.controls.yaw = b.ry + Math.PI;
+    this.controls.pitch = 0.22;
+    this.controls.dist = 5.5;
+    UI.addSystem("just the two of you and the view 🌙 — press E to stand up");
+  }
+
+  standUp() {
+    const s = this.seatedAt;
+    this.seatedAt = null;
+    if (s) {
+      this.controls.pos.set(s.x + Math.sin(s.ry) * 0.9, 0, s.z + Math.cos(s.ry) * 0.9);
+    }
   }
 
   // ---------------------------------------------------------- restaurants
@@ -493,8 +576,10 @@ export class Game {
     this.controls.dist = 7;
     this.camera.position.set(sx, 3, sz + 5);
 
-    this.bloom.strength = 0.3;
-    this.bloom.threshold = 0.85;
+    this.bloom.strength = 0.22;
+    this.bloom.threshold = 0.9;
+    this.renderer.toneMappingExposure = 1.0; // candlelit, not floodlit
+    this.avatarLight.intensity = 0; // the room lights itself — this was washing out the table
     UI.setLocation(door.poi.n, `${this.world.cuisine} · a table for two`);
     UI.setAttribution("");
     Net.sendWorld({ world: rid, x: sx, z: sz });
@@ -528,12 +613,14 @@ export class Game {
     // local movement — in photoreal mode a steep rise in terrain is a wall
     const photoreal = !!this.world.isPhotoreal;
     const headY = this.groundY + 2.5;
-    const blocked = photoreal
-      ? (x, z) => {
-          const gy = this.world.groundHeight(x, z, true, headY);
-          return gy !== null && gy - this.groundY > 2.0;
-        }
-      : (x, z) => this.world.blocked(x, z);
+    const blocked = this.summit
+      ? (x, z) => Math.hypot(x - this.towerCenter.x, z - this.towerCenter.z) > 3.6 // stay on the platform
+      : photoreal
+        ? (x, z) => {
+            const gy = this.world.groundHeight(x, z, true, headY);
+            return gy !== null && gy - this.groundY > 2.0;
+          }
+        : (x, z) => this.world.blocked(x, z);
     const speed = this.controls.update(dt, blocked, this.world.data.radius);
     this.controls.enabled = !UI.dialogOpen() && !UI.chatOpen() && !UI.travelOpen() &&
       !UI.dineOpen() && !this.seatedAt;
@@ -552,6 +639,8 @@ export class Game {
         const k = gy < this.groundY ? Math.min(1, dt * 14) : Math.min(1, dt * 9);
         this.groundY += (gy - this.groundY) * k;
       }
+    } else if (this.summit) {
+      this.groundY = 277.6; // the top platform of the tower
     } else if (this.world.surfaceY) {
       // stylized city: stand on whatever surface is underfoot (road/sidewalk)
       const sy = this.world.surfaceY(p.x, p.z);
@@ -560,10 +649,10 @@ export class Game {
       this.groundY = 0;
     }
     if (this.seatedAt) {
-      // seated at dinner: park the avatar on the chair
-      this.avatar.group.position.set(this.seatedAt.x, 0.22, this.seatedAt.z);
+      // seated (dinner chair or park bench): park the avatar
+      this.avatar.group.position.set(this.seatedAt.x, this.seatedAt.y ?? 0.22, this.seatedAt.z);
       this.avatar.group.rotation.y = this.seatedAt.ry;
-      this.controls.yaw += dt * 0.04; // slow cinematic drift around the table
+      this.controls.yaw += dt * (this.seatedAt.bench ? 0.025 : 0.04); // slow cinematic drift
     } else {
       this.avatar.group.position.set(p.x, this.groundY + p.y, p.z);
     }
@@ -654,6 +743,10 @@ export class Game {
     let prompt = null;
     if (this.world.isInterior) {
       prompt = this.world.prompt(p);
+    } else if (this.seatedAt?.bench) {
+      prompt = "press E · stand up 🌙";
+    } else if (this.summit) {
+      prompt = "press E · ride back down 🛗";
     }
     for (const it of this.interactables) {
       if (prompt) break;

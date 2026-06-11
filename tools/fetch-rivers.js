@@ -11,7 +11,7 @@ const DATA_DIR = path.join(__dirname, "..", "client", "public", "data");
 const CITIES = {
   boston: { lat: 42.3633093, lon: -71.0880085, radius: 700, defaultWidth: { river: 90, canal: 18 } },
   tangerang: { lat: -6.2263205, lon: 106.5995936, radius: 700, defaultWidth: { river: 30, canal: 10 } },
-  paris: { lat: 48.8583701, lon: 2.2944813, radius: 700, defaultWidth: { river: 165, canal: 16 } },
+  paris: { lat: 48.8583701, lon: 2.2944813, radius: 1800, defaultWidth: { river: 165, canal: 16 } },
 };
 
 async function overpass(query, attempt = 1) {
@@ -60,7 +60,9 @@ function ribbonPolygon(pts, width) {
   return left.concat(right.reverse());
 }
 
+const only = process.argv.slice(2);
 for (const [key, city] of Object.entries(CITIES)) {
+  if (only.length && !only.includes(key)) continue;
   const file = path.join(DATA_DIR, `${key}.json`);
   const data = JSON.parse(fs.readFileSync(file, "utf8"));
   const proj = makeProjector(city.lat, city.lon);

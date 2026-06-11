@@ -78,7 +78,7 @@ function makeSparkleMaterial() {
         vTwinkle = max(0.0, sin(time * 6.0 + seed * 13.7));
         vTwinkle = pow(vTwinkle, 6.0);
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
-        gl_PointSize = (2.0 + vTwinkle * 5.0) * (300.0 / -mv.z);
+        gl_PointSize = min((2.0 + vTwinkle * 5.0) * (300.0 / -mv.z), 22.0);
         gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: `
@@ -183,6 +183,17 @@ export function buildEiffelTower() {
   const p2 = new THREE.Mesh(new THREE.BoxGeometry(22, 2.8, 22), platMat); p2.position.y = 115;
   const p3 = new THREE.Mesh(new THREE.BoxGeometry(9, 3, 9), platMat); p3.position.y = 276;
   g.add(p1, p2, p3);
+  // summit railing, for standing at the top together
+  const railMat = new THREE.MeshLambertMaterial({ color: 0x3a2f22, emissive: 0x6a4a1e, emissiveIntensity: 0.4 });
+  for (let f = 0; f < 4; f++) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(9.2, 0.9, 0.12), railMat);
+    rail.position.y = 278.35;
+    rail.rotation.y = (f * Math.PI) / 2;
+    const off = 4.55;
+    rail.position.x = [0, off, 0, -off][f];
+    rail.position.z = [off, 0, -off, 0][f];
+    g.add(rail);
+  }
 
   // antenna
   const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.8, 28, 6), mat);
@@ -244,7 +255,7 @@ export function buildEiffelTower() {
         vTwinkle = max(0.0, sin(time * 6.0 + seed * 13.7));
         vTwinkle = pow(vTwinkle, 6.0);
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
-        gl_PointSize = (2.0 + vTwinkle * 5.0) * (300.0 / -mv.z);
+        gl_PointSize = min((2.0 + vTwinkle * 5.0) * (300.0 / -mv.z), 22.0);
         gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: `
