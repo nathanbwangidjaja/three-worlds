@@ -169,16 +169,22 @@ export const TUNING = {
   // used where OSM has the building but no name (Siloam, SPH, UPH...).
   tangerang: [
     { match: /Supermal|Supermall Karawaci/, style: "mall", h: 17 },
-    { match: /Fairview House|Hillcrest House/, style: "condoTower" },
+    { match: /Fairview House|Hillcrest House|Amartapura|Aryaduta|The Medina|Hotel /, style: "condoTower" },
     { match: "Lippo Village Tower", style: "towerGlass" },
+    { match: /Menara Matahari|Menara CIMB|Menara Dynaplast/, style: "towerGlass" }, // the CBD towers by UPH
+    { match: /Benton Junction|MaxxBox|Living Plaza/, style: "mall" },
     { match: /Masjid/, style: "mosque" },
     { match: /VIHARA|Vihara/, style: "vihara" },
     { match: /McDonald|KFC|Helen's/, style: "fastfood" },
     { match: /Rumah Buah/, style: "ruko" },
     { match: "Suzuki", style: "towerGlass" },              // glass showroom
-    { at: [78, -281], r: 130, minArea: 400, style: "hospital", label: "Siloam Hospitals" },   // Siloam Lippo Village
-    { at: [-287, -737], r: 190, minArea: 250, style: "sphCampus", label: "SPH Lippo Village" }, // Sekolah Pelita Harapan
-    { at: [-641, -203], r: 230, minArea: 300, style: "uphGlass", label: "UPH campus" },         // Universitas Pelita Harapan
+    { match: /Universitas|Sekolah Tinggi/, style: "uphGlass" },
+    { match: /Sekolah Pelita Harapan/, style: "sphCampus" },
+    // re-anchored against the 2400m bake (the old guesses landed in kampung)
+    { at: [1330, 830], r: 150, minArea: 300, style: "hospital", label: "Siloam Hospitals" },  // off Jl. Imam Bonjol, SE of the golf
+    { at: [743, 1584], r: 260, cat: "school", style: "sphCampus", label: "SPH Lippo Village" },
+    { at: [1250, 300], r: 330, cat: "school", style: "uphGlass", label: "UPH campus" },       // towers across from Benton Junction
+    { at: [0, 0], r: 2400, cat: "school", style: "sphCampus" }, // schools everywhere read institutional white-blue
     { at: [0, 0], r: 520, cat: "retail", style: "ruko" },  // shophouse strips near home
   ],
   paris: [],

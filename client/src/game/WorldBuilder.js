@@ -37,6 +37,32 @@ function hashStr(s) {
   return h >>> 0;
 }
 
+// bucketed point set — turns "scan every sample on every road" loops from
+// O(n²) into O(n) on the big 2400m maps
+function ptGrid(cell) {
+  const map = new Map();
+  return {
+    add(x, z, payload) {
+      const k = Math.floor(x / cell) + "," + Math.floor(z / cell);
+      let arr = map.get(k);
+      if (!arr) { arr = []; map.set(k, arr); }
+      arr.push(payload ?? [x, z]);
+    },
+    near(x, z, r) {
+      const out = [];
+      const g0x = Math.floor((x - r) / cell), g1x = Math.floor((x + r) / cell);
+      const g0z = Math.floor((z - r) / cell), g1z = Math.floor((z + r) / cell);
+      for (let gx = g0x; gx <= g1x; gx++) {
+        for (let gz = g0z; gz <= g1z; gz++) {
+          const arr = map.get(gx + "," + gz);
+          if (arr) out.push(...arr);
+        }
+      }
+      return out;
+    },
+  };
+}
+
 // oriented rectangle → collision polygon (cars, fences, benches)
 export function rectPoly(cx, cz, halfW, halfL, ry) {
   const s = Math.sin(ry), c = Math.cos(ry);
@@ -155,36 +181,40 @@ export class WorldBuilder {
 
   async build(onProgress) {
     const { theme, group } = this;
-    this.buildSky();
-    this.buildGround();
+    const tmark = (label, fn) => {
+      const t0 = performance.now();
+      const out = fn();
+      const ms = Math.round(performance.now() - t0);
+      if (ms > 250) console.log(`[world] ${label}: ${ms}ms`);
+      return out;
+    };
+    tmark("sky+ground", () => { this.buildSky(); this.buildGround(); });
     onProgress?.(0.07, "laying the ground");
     await this.nextFrame();
 
-    this.buildGreen();
-    this.buildWater();
+    tmark("green+water", () => { this.buildGreen(); this.buildWater(); });
     onProgress?.(0.16, "filling the river");
     await this.nextFrame();
 
-    this.synthClusterLanes();
-    this.fillClusterHouses();
+    tmark("synthLanes", () => this.synthClusterLanes());
+    tmark("fillHouses", () => this.fillClusterHouses());
 
-    this.buildRoads();
+    tmark("roads", () => this.buildRoads());
     onProgress?.(0.26, "painting the streets");
     await this.nextFrame();
 
     await this.buildBuildings(onProgress);
-    this.buildSigns();
-    this.buildTrees();
+    tmark("signs", () => this.buildSigns());
+    tmark("trees", () => this.buildTrees());
     onProgress?.(0.9, "planting the trees");
     await this.nextFrame();
 
-    this.buildCars();
-    this.buildFences();
-    this.buildMedians();
-    if (theme.streetlights) this.buildStreetlamps();
-    this.buildClouds();
-    this.buildLights();
-    this.buildBoundary();
+    tmark("cars", () => this.buildCars());
+    tmark("fences", () => this.buildFences());
+    tmark("medians", () => this.buildMedians());
+    tmark("tollway", () => this.buildTollway());
+    if (theme.streetlights) tmark("lamps", () => this.buildStreetlamps());
+    tmark("clouds+lights+boundary", () => { this.buildClouds(); this.buildLights(); this.buildBoundary(); });
     onProgress?.(1, "done");
 
     this.scene.add(group);
@@ -192,8 +222,14 @@ export class WorldBuilder {
   }
 
   nextFrame() {
-    // setTimeout, not rAF — rAF never fires in hidden tabs and would stall loading
-    return new Promise((r) => setTimeout(r, 0));
+    // MessageChannel, not rAF (frozen in hidden tabs) and not setTimeout
+    // (long-hidden tabs throttle timer chains to once a MINUTE, which turned
+    // the 57-yield big-city build into an hour)
+    if (!this._mc) this._mc = new MessageChannel();
+    return new Promise((r) => {
+      this._mc.port1.onmessage = () => r();
+      this._mc.port2.postMessage(0);
+    });
   }
 
   // ----------------------------------------------------------------- sky
@@ -469,18 +505,19 @@ export class WorldBuilder {
       !occupied.get(keyOf(x, z + 6)) && !occupied.get(keyOf(x, z - 6));
 
     // keep clear of every road (not just the one we're walking)
-    const roadPts = [];
+    const roadGrid = ptGrid(16);
     for (const r of data.roads) {
       for (let i = 1; i < r.p.length; i++) {
         const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
         const len = Math.hypot(bx - ax, bz - az);
         for (let d = 0; d < len; d += 8) {
-          roadPts.push([ax + ((bx - ax) * d) / len, az + ((bz - az) * d) / len, r.w / 2]);
+          const px = ax + ((bx - ax) * d) / len, pz = az + ((bz - az) * d) / len;
+          roadGrid.add(px, pz, [px, pz, r.w / 2]);
         }
       }
     }
     const nearRoad = (x, z, clearance) => {
-      for (const [rx, rz, hw] of roadPts) {
+      for (const [rx, rz, hw] of roadGrid.near(x, z, clearance + 8)) {
         if (Math.abs(rx - x) < hw + clearance && Math.abs(rz - z) < hw + clearance &&
             Math.hypot(rx - x, rz - z) < hw + clearance) return true;
       }
@@ -632,8 +669,21 @@ export class WorldBuilder {
     // roofs
     const roofCfg = theme.roof || { type: "flat", base: "#5c544c" };
     const hipVariants = roofCfg.tiles || (roofCfg.tile ? [{ tile: roofCfg.tile, dark: roofCfg.dark }] : []);
-    const flatGeos = [];
-    const hipGeos = hipVariants.map(() => []);
+    // raw triangle buffers — 28k tiny BufferGeometries + one mergeGeometries
+    // call locked the main thread for minutes on the 2400m Tangerang map
+    const flatBuf = { pos: [], uv: [], idx: [], n: 0, col: null };
+    const hipBufs = hipVariants.map(() => ({ pos: [], uv: [], idx: [], n: 0, col: null }));
+    const appendGeo = (buf, g) => {
+      const p = g.attributes.position, u = g.attributes.uv;
+      const base = buf.n;
+      for (let i = 0; i < p.count; i++) buf.pos.push(p.getX(i), p.getY(i), p.getZ(i));
+      for (let i = 0; i < u.count; i++) buf.uv.push(u.getX(i), u.getY(i));
+      const index = g.index;
+      if (index) for (let i = 0; i < index.count; i++) buf.idx.push(base + index.getX(i));
+      else for (let i = 0; i < p.count; i++) buf.idx.push(base + i);
+      buf.n += p.count;
+      g.dispose();
+    };
     const mansardCfg = theme.mansard;
     const mansardBuf = { pos: [], uv: [], idx: [], n: 0 };
     const tint = new THREE.Color();
@@ -650,11 +700,15 @@ export class WorldBuilder {
     };
 
     let i = 0;
+    let chunkT = performance.now();
     for (const b of data.buildings) {
       i++;
       if (i % 500 === 0) {
+        const now = performance.now();
+        if (now - chunkT > 400) console.log(`[world] buildings ${i - 500}-${i}: ${Math.round(now - chunkT)}ms`);
         onProgress?.(0.3 + 0.55 * (i / data.buildings.length), "raising the buildings");
         await this.nextFrame();
+        chunkT = performance.now(); // exclude the (hidden-tab-throttled) yield itself
       }
       if (b.tower && b.h > 100) continue; // Eiffel gets a hand-built model
 
@@ -739,21 +793,16 @@ export class WorldBuilder {
         if (useHip) {
           const [cx, cz] = centroidOf(pts);
           const ridgeY = h + roofCfg.height;
-          const pos = [], uv = [], idx = [];
+          const hbuf = hipBufs[Math.floor(rng() * hipVariants.length)];
           for (let e = 0; e < pts.length; e++) {
             const [ax, az] = pts[e];
             const [bx, bz] = pts[(e + 1) % pts.length];
-            const base = pos.length / 3;
-            pos.push(ax, h, az, bx, h, bz, cx, ridgeY, cz);
-            uv.push(ax / 4, az / 4, bx / 4, bz / 4, cx / 4, cz / 4);
-            idx.push(base, base + 1, base + 2);
+            const base = hbuf.n;
+            hbuf.pos.push(ax, h, az, bx, h, bz, cx, ridgeY, cz);
+            hbuf.uv.push(ax / 4, az / 4, bx / 4, bz / 4, cx / 4, cz / 4);
+            hbuf.idx.push(base, base + 1, base + 2);
+            hbuf.n += 3;
           }
-          const g = new THREE.BufferGeometry();
-          g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pos), 3));
-          g.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(uv), 2));
-          g.setIndex(idx);
-          g.computeVertexNormals();
-          hipGeos[Math.floor(rng() * hipVariants.length)].push(g);
         } else if (useMansard) {
           // Haussmann: sloped zinc band from the wall top to an inset cap
           const [cx, cz] = centroidOf(pts);
@@ -775,9 +824,9 @@ export class WorldBuilder {
             mansardBuf.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
             mansardBuf.n += 4;
           }
-          flatGeos.push(flatPolyGeometry(inset, topY, 4));
+          appendGeo(flatBuf, flatPolyGeometry(inset, topY, 4));
         } else {
-          flatGeos.push(flatPolyGeometry(pts, h, 4));
+          appendGeo(flatBuf, flatPolyGeometry(pts, h, 4));
         }
       } catch { /* degenerate footprint */ }
     }
@@ -812,24 +861,16 @@ export class WorldBuilder {
       buildBufMesh({ ...mansardBuf, col: null }, mMat);
     }
 
-    if (flatGeos.length) {
-      const merged = mergeGeometries(flatGeos.map((g) => g.toNonIndexed()), false);
-      const mesh = new THREE.Mesh(merged, new THREE.MeshLambertMaterial({
+    if (flatBuf.n) {
+      buildBufMesh(flatBuf, new THREE.MeshLambertMaterial({
         map: flatRoofTexture({ base: roofCfg.base || "#5c544c" }),
       }));
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      this.group.add(mesh);
     }
-    hipGeos.forEach((geos, vi) => {
-      if (!geos.length) return;
-      const merged = mergeGeometries(geos.map((g) => g.toNonIndexed()), false);
-      const mesh = new THREE.Mesh(merged, new THREE.MeshLambertMaterial({
+    hipBufs.forEach((hbuf, vi) => {
+      if (!hbuf.n) return;
+      buildBufMesh(hbuf, new THREE.MeshLambertMaterial({
         map: roofTexture({ tile: hipVariants[vi].tile, dark: hipVariants[vi].dark, seed: 5 + vi * 7 }),
       }));
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      this.group.add(mesh);
     });
   }
 
@@ -1020,7 +1061,7 @@ export class WorldBuilder {
     // closest roads first so the area around her home feels lush
     if (this.data.trees.length < 120) {
       const roads = this.data.roads
-        .filter((r) => r.t === "road")
+        .filter((r) => r.t === "road" && r.w !== 8 && !(r.n && /jalan tol/i.test(r.n)))
         .slice()
         .sort((a, b) => {
           const da = Math.min(...a.p.map(([x, z]) => x * x + z * z));
@@ -1174,7 +1215,10 @@ export class WorldBuilder {
     const mouths = [];
     for (const r of this.data.roads) {
       if (r.w >= 7.5 || r.t !== "road") continue;
-      mouths.push(r.p[0], r.p[r.p.length - 1]);
+      // crosswalks only paint within 540m of home — skip far mouths early
+      const a = r.p[0], b = r.p[r.p.length - 1];
+      if (Math.hypot(a[0], a[1]) < 560) mouths.push(a);
+      if (Math.hypot(b[0], b[1]) < 560) mouths.push(b);
     }
     const spots = [];
     const taken = [];
@@ -1333,6 +1377,7 @@ export class WorldBuilder {
     const spots = [];
     for (const r of this.data.roads) {
       if (r.t !== "road" || r.w < 7.5) continue;
+      if (r.w === 8 || (r.n && /jalan tol/i.test(r.n))) continue; // keep the toll corridor clear
       for (let i = 1; i < r.p.length && spots.length < 240; i++) {
         const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
         const segLen = Math.hypot(bx - ax, bz - az);
@@ -1343,6 +1388,7 @@ export class WorldBuilder {
           const x = ax + dx * d + nx * side * (r.w / 2 + 4.5);
           const z = az + dz * d + nz * side * (r.w / 2 + 4.5);
           if (Math.hypot(x, z) > 560) continue;
+          if (Math.hypot(x - 396, z + 190) < 30) continue; // toll plaza forecourt
           spots.push([x, z]);
         }
       }
@@ -1515,31 +1561,32 @@ export class WorldBuilder {
     const big = data.roads.filter((r) => r.t === "road" && r.w >= 7.5);
     if (!big.length) return;
     // junction points of smaller roads → leave fence gaps there
-    const junctions = [];
+    const junctionGrid = ptGrid(16);
     for (const r of data.roads) {
       if (r.w >= 7.5 && r.t === "road") continue;
-      for (const p of r.p) junctions.push(p);
+      for (const p of r.p) junctionGrid.add(p[0], p[1]);
     }
     const nearJunction = (x, z) => {
-      for (const [jx, jz] of junctions) {
+      for (const [jx, jz] of junctionGrid.near(x, z, 8)) {
         if (Math.abs(jx - x) < 8 && Math.abs(jz - z) < 8 && Math.hypot(jx - x, jz - z) < 8) return true;
       }
       return false;
     };
 
     // sample points of all big roads, to detect a twin carriageway (median)
-    const bigPts = [];
+    const bigGrid = ptGrid(16);
     big.forEach((r, ri) => {
       for (let i = 1; i < r.p.length; i++) {
         const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
         const len = Math.hypot(bx - ax, bz - az);
         for (let d = 0; d < len; d += 7) {
-          bigPts.push([ax + ((bx - ax) * d) / len, az + ((bz - az) * d) / len, ri]);
+          bigGrid.add(ax + ((bx - ax) * d) / len, az + ((bz - az) * d) / len,
+            [ax + ((bx - ax) * d) / len, az + ((bz - az) * d) / len, ri]);
         }
       }
     });
     const facesTwinRoad = (x, z, ownRi) => {
-      for (const [rx, rz, ri] of bigPts) {
+      for (const [rx, rz, ri] of bigGrid.near(x, z, 13)) {
         if (ri === ownRi) continue;
         if (Math.abs(rx - x) < 13 && Math.abs(rz - z) < 13 && Math.hypot(rx - x, rz - z) < 13) return true;
       }
@@ -1642,31 +1689,32 @@ export class WorldBuilder {
     const data = this.data;
     const big = data.roads.filter((r) => r.t === "road" && r.w >= 7.5);
     if (big.length < 2) return;
-    const bigPts = [];
+    const bigGrid = ptGrid(16);
     big.forEach((r, ri) => {
       for (let i = 1; i < r.p.length; i++) {
         const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
         const len = Math.hypot(bx - ax, bz - az);
         for (let d = 0; d < len; d += 7) {
-          bigPts.push([ax + ((bx - ax) * d) / len, az + ((bz - az) * d) / len, ri]);
+          bigGrid.add(ax + ((bx - ax) * d) / len, az + ((bz - az) * d) / len,
+            [ax + ((bx - ax) * d) / len, az + ((bz - az) * d) / len, ri]);
         }
       }
     });
     const twinAt = (x, z, ownRi) => {
-      for (const [rx, rz, ri] of bigPts) {
+      for (const [rx, rz, ri] of bigGrid.near(x, z, 13)) {
         if (ri === ownRi) continue;
         if (Math.abs(rx - x) < 13 && Math.abs(rz - z) < 13 && Math.hypot(rx - x, rz - z) < 13) return true;
       }
       return false;
     };
     // cross-street mouths punch gaps through the median
-    const jctPts = [];
+    const jctGrid = ptGrid(16);
     for (const r of data.roads) {
       if (r.w >= 7.5 && r.t === "road") continue;
-      for (const p of r.p) jctPts.push(p);
+      for (const p of r.p) jctGrid.add(p[0], p[1]);
     }
     const nearJct = (x, z) => {
-      for (const [jx, jz] of jctPts) {
+      for (const [jx, jz] of jctGrid.near(x, z, 9)) {
         if (Math.abs(jx - x) < 9 && Math.abs(jz - z) < 9 && Math.hypot(jx - x, jz - z) < 9) return true;
       }
       return false;
@@ -1708,6 +1756,211 @@ export class WorldBuilder {
     const mesh = new THREE.Mesh(merged, new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide }));
     mesh.receiveShadow = true;
     this.group.add(mesh);
+  }
+
+  // ------------------------------------------------------------- tollway
+  // The Jakarta–Merak toll: jersey barriers, tall double-arm masts, green
+  // gantry signs, and the Karawaci toll plaza — matched to Street View.
+  buildTollway() {
+    const tolls = this.data.roads.filter((r) => r.n && /jalan tol/i.test(r.n));
+    if (!tolls.length) return;
+
+    // ramp mouths (motorway links, w8) punch gaps so cars can get on and off
+    const rampGrid = ptGrid(16);
+    for (const r of this.data.roads) {
+      if (r.w === 8) for (const p of r.p) rampGrid.add(p[0], p[1]);
+    }
+    const nearRamp = (x, z) => {
+      for (const [jx, jz] of rampGrid.near(x, z, 16)) {
+        if (Math.hypot(jx - x, jz - z) < 16) return true;
+      }
+      return false;
+    };
+
+    const lim = this.data.radius - 5;
+    const rails = [], mastSpots = [], gantrySpots = [];
+    let mastAcc = 0, gantryAcc = 260, mastSide = 1;
+    for (const r of tolls) {
+      for (const side of [-1, 1]) {
+        let prev = null;
+        for (let i = 1; i < r.p.length; i++) {
+          const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
+          const segLen = Math.hypot(bx - ax, bz - az);
+          if (segLen < 1) continue;
+          const dx = (bx - ax) / segLen, dz = (bz - az) / segLen;
+          const nx = -dz, nz = dx;
+          for (let d = 0; d < segLen; d += 8) {
+            const px = ax + dx * d + nx * side * (r.w / 2 + 0.4);
+            const pz = az + dz * d + nz * side * (r.w / 2 + 0.4);
+            const ok = Math.hypot(px, pz) < lim && !nearRamp(px, pz);
+            if (!ok) { prev = null; continue; }
+            if (prev) {
+              const span = Math.hypot(px - prev.x, pz - prev.z);
+              if (span > 2 && span < 14) {
+                const rail = {
+                  x: (px + prev.x) / 2, z: (pz + prev.z) / 2,
+                  ry: Math.atan2(px - prev.x, pz - prev.z), len: span,
+                };
+                rails.push(rail);
+                this.addCollider(rectPoly(rail.x, rail.z, 0.25, span / 2, rail.ry), 1.1);
+              }
+            }
+            prev = { x: px, z: pz };
+          }
+        }
+      }
+      // masts + gantries along one carriageway only (shared corridor)
+      for (let i = 1; i < r.p.length; i++) {
+        const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
+        const segLen = Math.hypot(bx - ax, bz - az);
+        if (segLen < 1) continue;
+        const dx = (bx - ax) / segLen, dz = (bz - az) / segLen;
+        const nx = -dz, nz = dx;
+        for (let d = 0; d < segLen; d += 8) {
+          mastAcc += 8; gantryAcc += 8;
+          const cx = ax + dx * d, cz = az + dz * d;
+          if (Math.hypot(cx, cz) > lim - 30) continue;
+          if (mastAcc > 46) {
+            mastAcc = 0; mastSide = -mastSide;
+            mastSpots.push({ x: cx + nx * mastSide * (r.w / 2 + 1.6), z: cz + nz * mastSide * (r.w / 2 + 1.6), ry: Math.atan2(dx, dz), side: mastSide });
+          }
+          if (gantryAcc > 420) {
+            gantryAcc = 0;
+            gantrySpots.push({ x: cx, z: cz, ry: Math.atan2(dx, dz), w: r.w });
+          }
+        }
+      }
+    }
+
+    const concrete = new THREE.MeshLambertMaterial({ color: 0xb6b3ac });
+    if (rails.length) {
+      const railGeo = new THREE.BoxGeometry(0.42, 0.85, 1);
+      railGeo.translate(0, 0.42, 0);
+      const rMesh = new THREE.InstancedMesh(railGeo, concrete, rails.length);
+      const m = new THREE.Matrix4(), q = new THREE.Quaternion(), eu = new THREE.Euler(), s = new THREE.Vector3();
+      rails.forEach((rr, i) => {
+        eu.set(0, rr.ry, 0); q.setFromEuler(eu); s.set(1, 1, rr.len + 0.3);
+        m.compose(new THREE.Vector3(rr.x, this.surfaceY(rr.x, rr.z), rr.z), q, s);
+        rMesh.setMatrixAt(i, m);
+      });
+      rMesh.castShadow = true;
+      this.group.add(rMesh);
+    }
+
+    if (mastSpots.length) {
+      const pole = new THREE.CylinderGeometry(0.12, 0.18, 11.5, 6).translate(0, 5.75, 0);
+      const arm = new THREE.BoxGeometry(0.14, 0.14, 3.4).translate(0, 11.3, 1.5);
+      const head = new THREE.BoxGeometry(0.5, 0.16, 0.9).translate(0, 11.2, 3.0);
+      const mastGeo = mergeGeometries([pole, arm, head], false);
+      const mMesh = new THREE.InstancedMesh(mastGeo, new THREE.MeshLambertMaterial({ color: 0x4a4e54 }), mastSpots.length);
+      const m = new THREE.Matrix4(), q = new THREE.Quaternion(), eu = new THREE.Euler();
+      mastSpots.forEach((sp, i) => {
+        // arm reaches over the lanes
+        eu.set(0, sp.ry + (sp.side > 0 ? Math.PI : 0), 0); q.setFromEuler(eu);
+        m.compose(new THREE.Vector3(sp.x, this.surfaceY(sp.x, sp.z), sp.z), q, new THREE.Vector3(1, 1, 1));
+        mMesh.setMatrixAt(i, m);
+        this.addCollider(rectPoly(sp.x, sp.z, 0.25, 0.25, 0), 4);
+      });
+      this.group.add(mMesh);
+    }
+
+    // green overhead destination signs
+    if (gantrySpots.length) {
+      const cv = document.createElement("canvas");
+      cv.width = 512; cv.height = 128;
+      const ctx = cv.getContext("2d");
+      ctx.fillStyle = "#0d5a36"; ctx.fillRect(0, 0, 512, 128);
+      ctx.strokeStyle = "#e8e8e0"; ctx.lineWidth = 6; ctx.strokeRect(8, 8, 496, 112);
+      ctx.fillStyle = "#f2f2ea"; ctx.font = "bold 56px Arial";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText("JAKARTA  ➜", 256, 64);
+      const tex = new THREE.CanvasTexture(cv);
+      const cv2 = cv.cloneNode();
+      const ctx2 = cv2.getContext("2d");
+      ctx2.drawImage(cv, 0, 0);
+      ctx2.fillStyle = "#0d5a36"; ctx2.fillRect(10, 10, 492, 108);
+      ctx2.fillStyle = "#f2f2ea";
+      ctx2.font = "bold 44px Arial"; ctx2.textAlign = "center"; ctx2.textBaseline = "middle";
+      ctx2.fillText("TANGERANG · MERAK ➜", 256, 64);
+      const tex2 = new THREE.CanvasTexture(cv2);
+      const post = new THREE.MeshLambertMaterial({ color: 0x55595f });
+      gantrySpots.forEach((sp, gi) => {
+        const grp = new THREE.Group();
+        const half = sp.w + 6;
+        for (const s of [-1, 1]) {
+          const p = new THREE.Mesh(new THREE.BoxGeometry(0.35, 7.2, 0.35), post);
+          p.position.set(s * half / 2, 3.6, 0);
+          grp.add(p);
+          this.addCollider(rectPoly(sp.x + Math.cos(sp.ry) * s * half / 2, sp.z - Math.sin(sp.ry) * s * half / 2, 0.3, 0.3, 0), 7);
+        }
+        const beam = new THREE.Mesh(new THREE.BoxGeometry(half, 0.4, 0.4), post);
+        beam.position.y = 6.6;
+        grp.add(beam);
+        const sign = new THREE.Mesh(
+          new THREE.PlaneGeometry(7.5, 1.9),
+          new THREE.MeshLambertMaterial({ map: gi % 2 ? tex : tex2, side: THREE.DoubleSide })
+        );
+        sign.position.set(0, 5.4, 0.25);
+        grp.add(sign);
+        grp.position.set(sp.x, this.surfaceY(sp.x, sp.z), sp.z);
+        grp.rotation.y = sp.ry;
+        this.group.add(grp);
+      });
+    }
+
+    // GERBANG TOL KARAWACI — the plaza straddles the access road lanes
+    this.buildTollPlaza(396, -190, 0);
+  }
+
+  buildTollPlaza(x, z, ry) {
+    const grp = new THREE.Group();
+    const steel = new THREE.MeshLambertMaterial({ color: 0x8e9298 });
+    const yellow = new THREE.MeshLambertMaterial({ color: 0xd8a418 });
+    const boothMat = new THREE.MeshLambertMaterial({ color: 0xe8e5dc });
+    const W = 30;
+    // canopy
+    const canopy = new THREE.Mesh(new THREE.BoxGeometry(W, 0.5, 9), steel);
+    canopy.position.y = 6.2;
+    canopy.castShadow = true;
+    grp.add(canopy);
+    const fascia = new THREE.Mesh(new THREE.BoxGeometry(W, 1.1, 0.22), yellow);
+    fascia.position.set(0, 5.6, 4.6);
+    grp.add(fascia);
+    // name board
+    const cv = document.createElement("canvas");
+    cv.width = 1024; cv.height = 96;
+    const ctx = cv.getContext("2d");
+    ctx.fillStyle = "#13427a"; ctx.fillRect(0, 0, 1024, 96);
+    ctx.fillStyle = "#f4f4ec"; ctx.font = "bold 60px Arial";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("GERBANG TOL KARAWACI", 512, 50);
+    const board = new THREE.Mesh(
+      new THREE.PlaneGeometry(16, 1.5),
+      new THREE.MeshLambertMaterial({ map: new THREE.CanvasTexture(cv), side: THREE.DoubleSide })
+    );
+    board.position.set(0, 7.2, 4.6);
+    grp.add(board);
+    // pillars + booths
+    for (let i = -2; i <= 2; i++) {
+      const px = i * (W / 5);
+      const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.5, 6.2, 0.5), steel);
+      pillar.position.set(px, 3.1, 0);
+      grp.add(pillar);
+      if (i < 2) {
+        const booth = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.5, 2.6), boothMat);
+        booth.position.set(px + W / 10, 1.25, 0);
+        booth.castShadow = true;
+        grp.add(booth);
+        const visor = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.5, 0.6), yellow);
+        visor.position.set(px + W / 10, 2.2, 1.5);
+        grp.add(visor);
+        const bx = x + (px + W / 10) * Math.cos(ry), bz = z - (px + W / 10) * Math.sin(ry);
+        this.addCollider(rectPoly(bx, bz, 0.9, 1.4, ry), 2.6);
+      }
+    }
+    grp.position.set(x, this.surfaceY(x, z), z);
+    grp.rotation.y = ry;
+    this.group.add(grp);
   }
 
   // ----------------------------------------------------- paris decorations

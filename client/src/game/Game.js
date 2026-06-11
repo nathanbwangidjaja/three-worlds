@@ -12,6 +12,7 @@ import {
 import { makeDriveCar, modelParts } from "./cars.js";
 import { RealWorld, PHOTOREAL_AVAILABLE, CITY_COORDS } from "./RealWorld.js";
 import { RestaurantWorld } from "./RestaurantWorld.js";
+import { CampusWorld, CAMPUSES } from "./CampusWorld.js";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
@@ -43,7 +44,7 @@ export class Game {
     container.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.1, 4000);
+    this.camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.1, 10000);
     this.camera.position.set(0, 6, 12);
 
     // cinematic bloom — makes lit windows, sparkles and fireworks glow
@@ -180,6 +181,10 @@ export class Game {
       const [, city, idx] = w.split(":");
       const poi = this.dataCache[city]?.pois?.[Number(idx)];
       return poi ? `${poi.n} 🍽` : "a little restaurant 🍽";
+    }
+    if (w.startsWith("c:")) {
+      const key = w.split(":")[2];
+      return CAMPUSES[key] ? `${CAMPUSES[key].name} 🎓` : "campus 🎓";
     }
     return THEMES[w]?.title ?? w;
   }
@@ -490,6 +495,20 @@ export class Game {
         // avenue; the home marker waits inside the cluster
         addExtra(buildGatehouse(-0.5, 14, 0));
         this.world.addCollider?.(rectPoly(-0.5, 14, 3.4, 3.4, 0), 4);
+
+        // the schools — walk in through the real campuses
+        this.campusDoors = {
+          sph: (([dx, dz]) => ({ x: dx, z: dz }))(this.world.findClearSpot(743, 1548, 3)),
+          uph: (([dx, dz]) => ({ x: dx, z: dz }))(this.world.findClearSpot(1115, 280, 3)),
+        };
+        for (const [ck, door] of Object.entries(this.campusDoors)) {
+          addExtra(buildBeacon(door.x, door.z, "🎓", 0x8fd0ff, 28));
+          this.interactables.push({
+            x: door.x, z: door.z, range: 5,
+            prompt: `press E · visit ${CAMPUSES[ck].name} 🎓`,
+            onInteract: () => this.enterCampus(ck),
+          });
+        }
         [hx, hz] = this.world.findClearSpot(2, 44, 4);
       } else {
         [hx, hz] = this.world.findClearSpot(0, 0, 4);
@@ -555,7 +574,8 @@ export class Game {
         tangerang: { name: "Maya", pages: [
           "selamat datang di Lippo Village 🩷 the white gatehouse on the avenue is Taman Beverly — her home is just inside.",
           "any parked car can be driven: stand next to one and press E. take the Alphard, it's very Tangerang 😄 one of you drives, the other rides along.",
-          "restaurants with glowing signs are open for dinner dates, and the glowing portals fly you to Boston or Paris ✈️",
+          "follow a 🎓 beam to visit her schools — SPH Lippo Village is south past the golf course, UPH is east by the big towers. you can walk every floor.",
+          "drive north and you'll hit the Jakarta–Merak toll road, gerbang tol and all 🛣️ — and the glowing portals still fly you to Boston or Paris ✈️",
         ] },
         paris: { name: "Léa", pages: [
           "bienvenue à Paris 💛 see the golden beam at the tower's foot? that's the summit lift — press E there and ride up 276 meters.",
@@ -880,6 +900,75 @@ export class Game {
     UI.setAttribution("");
     Net.sendWorld({ world: rid, x: sx, z: sz });
     if (this.remoteState?.world === rid) this._spawnRemote(this.remoteState);
+    UI.fadeOut();
+  }
+
+  // ------------------------------------------------------------- campuses
+  async enterCampus(key) {
+    const city = this.worldKey;
+    const cfg = CAMPUSES[key];
+    this.returnSpot = { city, ...this.campusDoors?.[key] };
+    UI.fadeIn(`🎓 walking into ${cfg.name}…`);
+    await new Promise((r) => setTimeout(r, 650));
+
+    if (this.drive) { this.drive.speed = 0; this.exitCar(); }
+    this.remoteCar = null;
+    for (const g of this.liveCars) this.scene.remove(g);
+    this.liveCars = [];
+    this.effects.clear();
+    this._removeRemote();
+    for (const e of this.extras) this.scene.remove(e.group);
+    this.extras = [];
+    this.portals = [];
+    this.interactables = [];
+    this.eiffel = null;
+    this.towerCenter = null;
+    if (this.world) this.world.dispose();
+    this.world = null;
+    this.groundY = 0;
+
+    const cid = `c:${city}:${key}`;
+    this.worldKey = cid;
+    try {
+      this.world = new CampusWorld(this.scene, key, this);
+      await this.world.build((pct, label) => UI.setLoading(pct, label));
+    } catch (err) {
+      console.error("[campus] failed to open:", err);
+      try { this.world?.dispose(); } catch { /* already broken */ }
+      this.world = null;
+      await this.loadWorld(city);
+      UI.fadeOut();
+      UI.addSystem(`hmm, ${cfg.name} seems closed today 😅`);
+      return;
+    }
+
+    const sx = 0, sz = this.world.D / 2 - 2.4;
+    this.controls.pos.set(sx, 0, sz);
+    this.controls.yaw = 0;
+    this.controls.pitch = 0.3;
+    this.controls.dist = 8;
+    this.camera.position.set(sx, 3, sz + 5);
+    this.bloom.strength = 0.18;
+    this.bloom.threshold = 0.92;
+    this.renderer.toneMappingExposure = 1.05; // bright tropical daylight inside
+    this.avatarLight.intensity = 0;
+    UI.setLocation(cfg.name, cfg.sub);
+    UI.setAttribution("");
+    Net.sendWorld({ world: cid, x: sx, z: sz });
+    if (this.remoteState?.world === cid) this._spawnRemote(this.remoteState);
+    UI.fadeOut();
+  }
+
+  async exitCampus() {
+    const back = this.returnSpot;
+    this.seatedAt = null;
+    this.controls.enabled = true;
+    UI.fadeIn("🌴 back out into the heat…");
+    await new Promise((r) => setTimeout(r, 600));
+    await this.loadWorld(back.city);
+    const [x, z] = this.world.findClearSpot(back.x ?? 0, back.z ?? 0, 3);
+    this.controls.pos.set(x, 0, z);
+    Net.sendWorld({ world: back.city, x, z });
     UI.fadeOut();
   }
 

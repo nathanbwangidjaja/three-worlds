@@ -22,7 +22,7 @@ const CITIES = {
     name: "Tangerang",
     lat: -6.2263205,
     lon: 106.5995936,
-    radius: 700,
+    radius: 2400, // all of Lippo Village out to the Jakarta–Merak toll road
   },
   paris: {
     name: "Paris",
