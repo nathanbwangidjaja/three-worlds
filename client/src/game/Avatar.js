@@ -29,6 +29,157 @@ export const OUTFITS = {
 
 function lambert(color) { return new THREE.MeshLambertMaterial({ color }); }
 
+// ---- drawn faces (Animal-Crossing-style detail, not photos) ----
+// face: { eyes: 'soft'|'sharp'|'round', lashes, browTilt, mouth: 'smile'|'soft'|'grin',
+//         blush, lipTint, stubble, glasses, skin, hair }
+function drawFaceTexture(face, closed = false) {
+  const W = 256, H = 192;
+  const c = document.createElement("canvas");
+  c.width = W; c.height = H;
+  const ctx = c.getContext("2d");
+
+  // skin base (matches the skull so the patch blends seamlessly)
+  const skin = "#" + new THREE.Color(face.skin).getHexString();
+  ctx.fillStyle = skin;
+  ctx.fillRect(0, 0, W, H);
+  // soft cheek/forehead shading
+  const sh = ctx.createRadialGradient(W / 2, H * 0.42, 30, W / 2, H * 0.5, 150);
+  sh.addColorStop(0, "rgba(255,255,255,0.10)");
+  sh.addColorStop(1, "rgba(120,70,40,0.08)");
+  ctx.fillStyle = sh;
+  ctx.fillRect(0, 0, W, H);
+
+  const browC = "#" + new THREE.Color(face.hair).clone().multiplyScalar(0.85).getHexString();
+  const eyeY = H * 0.54, eyeDX = W * 0.185;
+  const ex = [W / 2 - eyeDX, W / 2 + eyeDX];
+
+  // eyebrows
+  ctx.strokeStyle = browC;
+  ctx.lineWidth = 7;
+  ctx.lineCap = "round";
+  for (let i = 0; i < 2; i++) {
+    const s = i === 0 ? -1 : 1;
+    ctx.beginPath();
+    ctx.moveTo(ex[i] - s * 22, eyeY - 34 + face.browTilt * 6);
+    ctx.quadraticCurveTo(ex[i], eyeY - 42 - face.browTilt * 4, ex[i] + s * 22, eyeY - 32);
+    ctx.stroke();
+  }
+
+  // eyes
+  for (let i = 0; i < 2; i++) {
+    if (closed) {
+      ctx.strokeStyle = "#241a16";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.arc(ex[i], eyeY - 2, 14, 0.15 * Math.PI, 0.85 * Math.PI);
+      ctx.stroke();
+      continue;
+    }
+    // eye shape
+    ctx.fillStyle = "#241a16";
+    ctx.beginPath();
+    if (face.eyes === "sharp") {
+      ctx.ellipse(ex[i], eyeY, 13, 15, 0, 0, Math.PI * 2);
+    } else if (face.eyes === "round") {
+      ctx.ellipse(ex[i], eyeY, 14, 14, 0, 0, Math.PI * 2);
+    } else {
+      ctx.ellipse(ex[i], eyeY, 13, 16, 0, 0, Math.PI * 2);
+    }
+    ctx.fill();
+    // iris warmth
+    ctx.fillStyle = "rgba(120,70,30,0.45)";
+    ctx.beginPath();
+    ctx.ellipse(ex[i], eyeY + 4, 9, 9, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // highlights — this is what makes eyes feel alive
+    ctx.fillStyle = "rgba(255,255,255,0.95)";
+    ctx.beginPath();
+    ctx.ellipse(ex[i] - 4, eyeY - 6, 4.4, 4.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.beginPath();
+    ctx.ellipse(ex[i] + 5, eyeY + 6, 2.2, 2.4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // lashes
+    if (face.lashes) {
+      ctx.strokeStyle = "#241a16";
+      ctx.lineWidth = 3.4;
+      const s = i === 0 ? -1 : 1;
+      for (const [dx, dy, ang] of [[s * 12, -10, -0.5], [s * 15, -3, -0.15], [s * 15, 4, 0.25]]) {
+        ctx.beginPath();
+        ctx.moveTo(ex[i] + dx, eyeY + dy);
+        ctx.lineTo(ex[i] + dx + s * 7 * Math.cos(ang), eyeY + dy + 7 * Math.sin(ang) - 3);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // glasses
+  if (face.glasses) {
+    ctx.strokeStyle = "rgba(30,28,30,0.9)";
+    ctx.lineWidth = 4.5;
+    for (let i = 0; i < 2; i++) {
+      ctx.beginPath();
+      ctx.roundRect(ex[i] - 21, eyeY - 19, 42, 36, 10);
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.moveTo(ex[0] + 21, eyeY - 6);
+    ctx.lineTo(ex[1] - 21, eyeY - 6);
+    ctx.stroke();
+  }
+
+  // nose: a soft little shadow
+  ctx.strokeStyle = "rgba(120,70,40,0.5)";
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(W / 2, H * 0.7, 7, 0.2 * Math.PI, 0.8 * Math.PI);
+  ctx.stroke();
+
+  // mouth
+  const my = H * 0.85;
+  ctx.lineCap = "round";
+  if (face.mouth === "grin") {
+    ctx.fillStyle = face.lipTint ? "#b3585e" : "#7a4038";
+    ctx.beginPath();
+    ctx.arc(W / 2, my - 3, 16, 0.1 * Math.PI, 0.9 * Math.PI);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    ctx.fillRect(W / 2 - 10, my - 2, 20, 4);
+  } else {
+    ctx.strokeStyle = face.lipTint ? "#b3585e" : "rgba(90,45,35,0.85)";
+    ctx.lineWidth = face.mouth === "soft" ? 4.5 : 5.5;
+    ctx.beginPath();
+    ctx.arc(W / 2, my - 8, face.mouth === "soft" ? 12 : 15, 0.22 * Math.PI, 0.78 * Math.PI);
+    ctx.stroke();
+  }
+
+  // blush
+  if (face.blush) {
+    ctx.fillStyle = "rgba(235,140,135,0.4)";
+    for (const bx of [W / 2 - W * 0.31, W / 2 + W * 0.31]) {
+      ctx.beginPath();
+      ctx.ellipse(bx, H * 0.7, 17, 10, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // stubble
+  if (face.stubble) {
+    ctx.fillStyle = "rgba(50,40,34,0.30)";
+    for (let i = 0; i < 90; i++) {
+      const a = Math.random();
+      const x = W / 2 + (a - 0.5) * W * 0.5;
+      const y = H * 0.8 + Math.random() * H * 0.16 - Math.abs(a - 0.5) * 18;
+      ctx.fillRect(x, y, 2, 2);
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 export class Avatar {
   // opts: { outfit: index into OUTFITS[role], npcLook: {skin,hair,shirt,pants,shoes,hairstyle,scale} }
   constructor(role = "you", name = "", opts = {}) {
@@ -121,23 +272,33 @@ export class Avatar {
     skull.castShadow = true;
     head.add(skull);
 
-    // eyes
-    for (const ex of [-0.12, 0.12]) {
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 6), lambert(0x1a1416));
-      eye.position.set(ex, 0.32, 0.3);
-      head.add(eye);
-    }
-    // blush for her & feminine NPCs
-    if (look.hairstyle === "long" || look.hairstyle === "bun") {
-      for (const ex of [-0.2, 0.2]) {
-        const blush = new THREE.Mesh(
-          new THREE.CircleGeometry(0.05, 8),
-          new THREE.MeshBasicMaterial({ color: 0xe89a96, transparent: true, opacity: 0.4, toneMapped: true })
-        );
-        blush.position.set(ex, 0.24, 0.305);
-        blush.lookAt(blush.position.clone().multiplyScalar(2).add(new THREE.Vector3(0, 0.24, 0.8)));
-        head.add(blush);
-      }
+    // drawn face on a curved patch that hugs the skull
+    const fem = look.hairstyle === "long" || look.hairstyle === "bun";
+    const facePreset = role === "her"
+      ? { eyes: "soft", lashes: true, browTilt: 0, mouth: "smile", blush: true, lipTint: true }
+      : { eyes: "sharp", lashes: false, browTilt: 0.5, mouth: "soft", blush: false, lipTint: false };
+    const face = {
+      skin: look.skin, hair: look.hair,
+      ...facePreset,
+      ...(opts.npcLook ? { lashes: fem, blush: fem, lipTint: fem } : {}),
+      ...(look.face || {}),
+    };
+    this.faceOpen = drawFaceTexture(face, false);
+    this.faceClosed = drawFaceTexture(face, true);
+    const phiLen = 1.7;
+    const patchGeo = new THREE.SphereGeometry(
+      0.346, 20, 14, Math.PI / 2 - phiLen / 2, phiLen, 0.95, 1.25
+    );
+    this.faceMat = new THREE.MeshLambertMaterial({ map: this.faceOpen });
+    const facePatch = new THREE.Mesh(patchGeo, this.faceMat);
+    facePatch.position.y = 0.3;
+    head.add(facePatch);
+
+    // ears
+    for (const sx of [-1, 1]) {
+      const ear = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 5), lambert(look.skin));
+      ear.position.set(sx * 0.33, 0.3, 0);
+      head.add(ear);
     }
 
     // hair styles
@@ -179,12 +340,13 @@ export class Avatar {
       cap.position.y = 0.33;
       head.add(cap);
     } else {
-      // her: long dark hair, middle part, strands framing the face
+      // her: long dark hair, middle part, strands framing the face —
+      // cap sits high in front so her eyes show, back panel carries the length
       const cap = new THREE.Mesh(
-        new THREE.SphereGeometry(0.37, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.62),
+        new THREE.SphereGeometry(0.365, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.5),
         hairM
       );
-      cap.position.y = 0.33;
+      cap.position.y = 0.36;
       head.add(cap);
       const back = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.85, 0.16), hairM);
       back.position.set(0, -0.02, -0.27);
@@ -324,12 +486,25 @@ export class Avatar {
       this.waveUntil = 0;
       this.armR.rotation.z = 0;
     }
+
+    // blinking
+    if (this.faceMat) {
+      if (this._blinkAt === undefined) this._blinkAt = t + 1.5 + Math.random() * 3;
+      if (t > this._blinkAt + 0.13) {
+        if (this.faceMat.map !== this.faceOpen) this.faceMat.map = this.faceOpen;
+        this._blinkAt = t + 2.2 + Math.random() * 3.6;
+      } else if (t > this._blinkAt && this.faceMat.map !== this.faceClosed) {
+        this.faceMat.map = this.faceClosed;
+      }
+    }
   }
 
   wave(t) { this.waveUntil = t + 1.8; }
 
   dispose() {
     if (this.bubbleTimeout) clearTimeout(this.bubbleTimeout);
+    this.faceOpen?.dispose();
+    this.faceClosed?.dispose();
     this.group.traverse((o) => {
       if (o.geometry) o.geometry.dispose();
       if (o.material) {
@@ -347,13 +522,25 @@ export function randomNpcLook(rng) {
   const shirts = [0x6a4a5e, 0x3a5a4a, 0x46506e, 0x7a5a36, 0x555a44, 0x8a3a3e, 0x2e4a66, 0x9a8a6a];
   const pantsC = [0x1d1d22, 0x32383e, 0x4a4038, 0x5a5e66, 0x6e6256];
   const styles = ["short", "long", "bun", "buzz"];
+  const hairstyle = styles[Math.floor(rng() * styles.length)];
+  const fem = hairstyle === "long" || hairstyle === "bun";
   return {
     skin: skins[Math.floor(rng() * skins.length)],
     hair: hairs[Math.floor(rng() * hairs.length)],
     shirt: shirts[Math.floor(rng() * shirts.length)],
     pants: pantsC[Math.floor(rng() * pantsC.length)],
     shoes: [0xeeeeee, 0x2a2a2e, 0x6e5a44][Math.floor(rng() * 3)],
-    hairstyle: styles[Math.floor(rng() * styles.length)],
+    hairstyle,
     scale: 0.92 + rng() * 0.16,
+    face: {
+      eyes: ["soft", "sharp", "round"][Math.floor(rng() * 3)],
+      browTilt: rng() * 1.2 - 0.3,
+      mouth: ["smile", "soft", "grin"][Math.floor(rng() * 3)],
+      lashes: fem,
+      blush: fem && rng() < 0.5,
+      lipTint: fem && rng() < 0.5,
+      stubble: !fem && rng() < 0.3,
+      glasses: rng() < 0.18,
+    },
   };
 }
