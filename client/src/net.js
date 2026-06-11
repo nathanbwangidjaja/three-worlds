@@ -8,7 +8,7 @@ export const Net = {
   room: null,
   sessionId: null,
   connected: false,
-  listeners: { chat: [], emote: [], players: [] },
+  listeners: { chat: [], emote: [], players: [], event: [] },
 
   async connect({ role, name, world, x, z }) {
     const client = new Client(SERVER_URL);
@@ -18,6 +18,7 @@ export const Net = {
 
     this.room.onMessage("chat", (m) => this.listeners.chat.forEach((fn) => fn(m)));
     this.room.onMessage("emote", (m) => this.listeners.emote.forEach((fn) => fn(m)));
+    this.room.onMessage("event", (m) => this.listeners.event.forEach((fn) => fn(m)));
 
     const $ = getStateCallbacks(this.room);
     $(this.room.state).players.onAdd((player, id) => {
@@ -47,4 +48,5 @@ export const Net = {
   sendWorld(data) { if (this.connected) this.room.send("world", data); },
   sendChat(text) { if (this.connected) this.room.send("chat", { text }); },
   sendEmote(kind) { if (this.connected) this.room.send("emote", { kind }); },
+  sendEvent(kind, data) { if (this.connected) this.room.send("event", { kind, data }); },
 };

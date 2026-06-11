@@ -70,6 +70,14 @@ export class WorldRoom extends Room {
       if (!p) return;
       this.broadcast("emote", { id: client.sessionId, kind });
     });
+
+    // small shared moments (deep-talk cards at dinner, etc.)
+    this.onMessage("event", (client, d) => {
+      if (!this.state.players.get(client.sessionId)) return;
+      const kind = String(d?.kind ?? "").slice(0, 24);
+      if (!kind) return;
+      this.broadcast("event", { id: client.sessionId, kind, data: d?.data ?? null });
+    });
   }
 
   onJoin(client, options) {

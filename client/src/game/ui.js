@@ -143,6 +143,89 @@ export function initTravel() {
   });
 }
 
+// ----------------------------------------------------------------- dining
+let dineVisible = false;
+let topicTimer = null;
+
+function dineCard(title, sub) {
+  const wrap = $("dine");
+  $("dine-title").textContent = title;
+  $("dine-sub").textContent = sub;
+  $("dine-body").innerHTML = "";
+  $("dine-actions").innerHTML = "";
+  wrap.style.display = "flex";
+  dineVisible = true;
+  return { body: $("dine-body"), actions: $("dine-actions") };
+}
+
+export function closeDine() {
+  $("dine").style.display = "none";
+  dineVisible = false;
+}
+
+export function dineOpen() { return dineVisible; }
+
+// pick up to 3 items, then "Order"
+export function openMenu(name, cuisine, menu, onOrder) {
+  const { body, actions } = dineCard(name, `${cuisine} · menu`);
+  const picked = new Set();
+  const orderBtn = document.createElement("button");
+  const refresh = () => {
+    orderBtn.disabled = picked.size === 0;
+    orderBtn.textContent = picked.size ? `Order (${picked.size}) 🍽` : "pick something tasty…";
+  };
+  menu.forEach((item, i) => {
+    const row = document.createElement("div");
+    row.className = "item";
+    row.innerHTML = `<span>${item[0]}</span><span class="price">${item[1]}</span>`;
+    row.onclick = () => {
+      if (picked.has(i)) picked.delete(i);
+      else if (picked.size < 3) picked.add(i);
+      row.classList.toggle("sel", picked.has(i));
+      refresh();
+    };
+    body.appendChild(row);
+  });
+  orderBtn.onclick = () => {
+    closeDine();
+    onOrder([...picked].map((i) => menu[i]));
+  };
+  actions.appendChild(orderBtn);
+  refresh();
+}
+
+export function showTopic(text, n) {
+  const { body, actions } = dineCard("table talk 💬", `card ${n}`);
+  const p = document.createElement("div");
+  p.className = "topic-text";
+  p.textContent = text;
+  body.appendChild(p);
+  const ok = document.createElement("button");
+  ok.textContent = "talk it out 💛 (close)";
+  ok.onclick = closeDine;
+  actions.appendChild(ok);
+  if (topicTimer) clearTimeout(topicTimer);
+  topicTimer = setTimeout(() => { if (dineVisible) closeDine(); }, 30000);
+}
+
+export function openBill(name, order, total, currency, onPay) {
+  const { body, actions } = dineCard(name, "the bill");
+  for (const it of order) {
+    const row = document.createElement("div");
+    row.className = "bill-row";
+    row.innerHTML = `<span>${it[0]}</span><span>${currency}${it[1]}</span>`;
+    body.appendChild(row);
+  }
+  const tot = document.createElement("div");
+  tot.className = "bill-row bill-total";
+  tot.innerHTML = `<span>total · date #∞</span><span>${currency}${Math.round(total * 100) / 100}</span>`;
+  body.appendChild(tot);
+  const pay = document.createElement("button");
+  pay.textContent = "pay 💳 (it's on us both)";
+  pay.onclick = () => { closeDine(); onPay(); };
+  actions.appendChild(pay);
+}
+
 // ------------------------------------------------------------------- fade
 export function fadeIn(text) {
   $("fade-text").textContent = text ?? "";

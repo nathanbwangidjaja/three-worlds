@@ -10,6 +10,7 @@ import {
   fenceTexture, mansardTexture,
 } from "./textures.js";
 import { TUNING, STYLE_DEFS } from "./cityTuning.js";
+import { isRestaurant } from "./cuisines.js";
 
 const TEXTURE_FACTORIES = {
   facade: facadeTexture,
@@ -525,7 +526,7 @@ export class WorldBuilder {
       if (pair.emissive) {
         mat.emissiveMap = pair.emissive;
         mat.emissive = new THREE.Color(0xffffff);
-        mat.emissiveIntensity = 1.15;
+        mat.emissiveIntensity = 0.85;
       }
       return mat;
     });
@@ -800,10 +801,11 @@ export class WorldBuilder {
       ["#a8443c", "#3e6048", "#44587a", "#8a6a34"]).map((c) => new THREE.Color(c));
     const night = !!this.theme.night;
     const usedEdges = new Set();
+    this.restaurantDoors = [];
     let placed = 0;
 
     for (const poi of pois) {
-      if (placed >= 110) break;
+      if (placed >= 140) break;
       // nearest building edge within 30 m
       let best = null;
       for (let bi = 0; bi < this.buildingList.length; bi++) {
@@ -882,6 +884,27 @@ export class WorldBuilder {
       aw.lookAt(best.px + nx * 10, signY - 0.55 - 3.4, best.pz + nz * 10);
       aw.castShadow = true;
       this.group.add(aw);
+
+      // restaurants get an enterable door under the sign
+      if (isRestaurant(poi.t)) {
+        const doorMesh = new THREE.Mesh(
+          new THREE.PlaneGeometry(1.5, 2.5),
+          new THREE.MeshLambertMaterial({
+            color: 0x241e1a,
+            emissive: night ? 0xb88648 : 0x000000,
+            emissiveIntensity: night ? 0.35 : 0,
+          })
+        );
+        doorMesh.position.set(best.px + nx * 0.22, 1.25, best.pz + nz * 0.22);
+        doorMesh.lookAt(best.px + nx * 10, 1.25, best.pz + nz * 10);
+        this.group.add(doorMesh);
+        this.restaurantDoors.push({
+          x: best.px + nx * 1.4,
+          z: best.pz + nz * 1.4,
+          poi,
+          poiIndex: pois.indexOf(poi),
+        });
+      }
 
       placed++;
     }

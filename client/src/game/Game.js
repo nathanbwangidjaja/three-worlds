@@ -10,6 +10,7 @@ import {
   buildGatehouse,
 } from "./landmarks.js";
 import { RealWorld, PHOTOREAL_AVAILABLE, CITY_COORDS } from "./RealWorld.js";
+import { RestaurantWorld } from "./RestaurantWorld.js";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
@@ -112,8 +113,15 @@ export class Game {
         }
         this.remote.target = partner;
       } else {
-        UI.setPartnerStatus(STORY.partnerWorld(partner.name, THEMES[partner.world]?.title ?? partner.world));
+        UI.setPartnerStatus(STORY.partnerWorld(partner.name, this._worldLabel(partner.world)));
         this._removeRemote();
+      }
+    });
+
+    Net.on("event", (m) => {
+      if (m.id === Net.sessionId) return;
+      if (m.kind === "topic" && this.world?.isInterior && m.data) {
+        this.world.showTopicFromPartner(m.data.i, m.data.n);
       }
     });
 
@@ -148,10 +156,21 @@ export class Game {
     this.remote = null;
   }
 
+  _worldLabel(w) {
+    if (!w) return "";
+    if (w.startsWith("r:")) {
+      const [, city, idx] = w.split(":");
+      const poi = this.dataCache[city]?.pois?.[Number(idx)];
+      return poi ? `${poi.n} 🍽` : "a little restaurant 🍽";
+    }
+    return THEMES[w]?.title ?? w;
+  }
+
   // ---------------------------------------------------------------- keys
   _bindKeys() {
     window.addEventListener("keydown", (e) => {
       if (e.target instanceof HTMLInputElement) return;
+      if (UI.dineOpen()) return; // menu/bill/card overlays are mouse-driven
       if (UI.dialogOpen()) {
         if (e.code === "Space" || e.code === "KeyE" || e.code === "Enter") {
           e.preventDefault();
@@ -160,7 +179,11 @@ export class Game {
         return;
       }
       if (e.code === "KeyE") this._tryInteract();
-      if (e.code === "KeyM") UI.openTravel(this.worldKey, (to) => this.travel(to));
+      if (e.code === "KeyT" && this.world?.isInterior) this.world.drawTopic();
+      if (e.code === "KeyM") {
+        if (this.world?.isInterior) UI.addSystem("finish dinner first 😄 — the world can wait");
+        else UI.openTravel(this.worldKey, (to) => this.travel(to));
+      }
       if (e.code === "Digit1") this.emote("heart");
       if (e.code === "Digit2") this.emote("wave");
       if (e.code === "Digit3") this.emote("sparkle");
@@ -177,6 +200,10 @@ export class Game {
 
   _tryInteract() {
     const p = this.controls.pos;
+    if (this.world?.isInterior) {
+      this.world.interact(p);
+      return;
+    }
     for (const it of this.interactables) {
       if (Math.hypot(it.x - p.x, it.z - p.z) < it.range) {
         it.onInteract();
@@ -256,10 +283,10 @@ export class Game {
 
     UI.setAttribution(this.world.isPhotoreal ? "Google · " + (this.world.attributions() || "Photorealistic 3D Tiles") : "map data © OpenStreetMap");
 
-    // night Paris glows, day cities get just a kiss of bloom
+    // night Paris glows softly — strong bloom blew the windows out
     if (theme.night) {
-      this.bloom.strength = 0.75;
-      this.bloom.threshold = 0.5;
+      this.bloom.strength = 0.42;
+      this.bloom.threshold = 0.66;
       this.avatarLight.intensity = 30;
     } else {
       this.bloom.strength = 0.28;
@@ -393,6 +420,17 @@ export class Game {
       });
     }
 
+    // --- restaurant doors: every real café/restaurant is enterable ---
+    if (this.world.restaurantDoors?.length) {
+      for (const door of this.world.restaurantDoors) {
+        this.interactables.push({
+          x: door.x, z: door.z, range: 2.8,
+          prompt: `press E · dine at ${door.poi.n} 🍽`,
+          onInteract: () => this.enterRestaurant(door),
+        });
+      }
+    }
+
     // --- portals ---
     const dests = DESTINATIONS[key];
     const portalColors = { boston: 0xffa94d, tangerang: 0x6de8a0, paris: 0xc77bff };
@@ -410,6 +448,70 @@ export class Game {
       this.extras.push(portal);
       this.portals.push({ x: cpx, z: cpz, to: d.to });
     });
+  }
+
+  // ---------------------------------------------------------- restaurants
+  async enterRestaurant(door) {
+    const city = this.worldKey;
+    this.returnSpot = { city, x: door.x, z: door.z };
+    UI.fadeIn(`🍽 stepping into ${door.poi.n}…`);
+    await new Promise((r) => setTimeout(r, 650));
+
+    this.effects.clear();
+    this._removeRemote();
+    for (const e of this.extras) this.scene.remove(e.group);
+    this.extras = [];
+    this.portals = [];
+    this.interactables = [];
+    this.eiffel = null;
+    this.towerCenter = null;
+    if (this.world) this.world.dispose();
+    this.world = null;
+    this.groundY = 0;
+
+    const rid = `r:${city}:${door.poiIndex}`;
+    this.worldKey = rid;
+    try {
+      this.world = new RestaurantWorld(this.scene, door.poi, city, this);
+      await this.world.build((pct, label) => UI.setLoading(pct, label));
+    } catch (err) {
+      console.error("[restaurant] failed to open:", err);
+      try { this.world?.dispose(); } catch { /* already broken */ }
+      this.world = null;
+      await this.loadWorld(city);
+      UI.fadeOut();
+      UI.addSystem(`hmm, ${door.poi.n} seems closed tonight 😅`);
+      return;
+    }
+
+    // spawn just inside the door
+    const sx = 0, sz = this.world.D / 2 - 2.2;
+    this.controls.pos.set(sx, 0, sz);
+    this.controls.yaw = 0;
+    this.controls.pitch = 0.3;
+    this.controls.dist = 7;
+    this.camera.position.set(sx, 3, sz + 5);
+
+    this.bloom.strength = 0.3;
+    this.bloom.threshold = 0.85;
+    UI.setLocation(door.poi.n, `${this.world.cuisine} · a table for two`);
+    UI.setAttribution("");
+    Net.sendWorld({ world: rid, x: sx, z: sz });
+    if (this.remoteState?.world === rid) this._spawnRemote(this.remoteState);
+    UI.fadeOut();
+  }
+
+  async exitRestaurant() {
+    const back = this.returnSpot;
+    this.seatedAt = null;
+    this.controls.enabled = true;
+    UI.fadeIn("🌙 back out into the evening…");
+    await new Promise((r) => setTimeout(r, 600));
+    await this.loadWorld(back.city);
+    const [x, z] = this.world.findClearSpot(back.x, back.z, 3);
+    this.controls.pos.set(x, 0, z);
+    Net.sendWorld({ world: back.city, x, z });
+    UI.fadeOut();
   }
 
   // ---------------------------------------------------------------- loop
@@ -432,7 +534,8 @@ export class Game {
         }
       : (x, z) => this.world.blocked(x, z);
     const speed = this.controls.update(dt, blocked, this.world.data.radius);
-    this.controls.enabled = !UI.dialogOpen() && !UI.chatOpen() && !UI.travelOpen();
+    this.controls.enabled = !UI.dialogOpen() && !UI.chatOpen() && !UI.travelOpen() &&
+      !UI.dineOpen() && !this.seatedAt;
 
     const p = this.controls.pos;
     if (photoreal) {
@@ -451,7 +554,14 @@ export class Game {
     } else {
       this.groundY = 0;
     }
-    this.avatar.group.position.set(p.x, this.groundY + p.y, p.z);
+    if (this.seatedAt) {
+      // seated at dinner: park the avatar on the chair
+      this.avatar.group.position.set(this.seatedAt.x, 0.22, this.seatedAt.z);
+      this.avatar.group.rotation.y = this.seatedAt.ry;
+      this.controls.yaw += dt * 0.04; // slow cinematic drift around the table
+    } else {
+      this.avatar.group.position.set(p.x, this.groundY + p.y, p.z);
+    }
     this.avatarLight.position.set(p.x, this.groundY + p.y + 3.2, p.z);
     // smooth heading turn
     let dh = this.controls.heading - this.avatar.group.rotation.y;
@@ -535,7 +645,11 @@ export class Game {
 
     // interaction prompt
     let prompt = null;
+    if (this.world.isInterior) {
+      prompt = this.world.prompt(p);
+    }
     for (const it of this.interactables) {
+      if (prompt) break;
       if (Math.hypot(it.x - p.x, it.z - p.z) < it.range) { prompt = it.prompt; break; }
     }
     if (!prompt) {
