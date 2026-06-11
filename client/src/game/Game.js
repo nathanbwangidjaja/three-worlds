@@ -87,6 +87,7 @@ export class Game {
     this.remoteCar = null;     // the partner's car, rendered locally
     this.remoteCarState = null; // their latest car on/off event
     this.liveCars = [];        // every woken-up car group (cleaned on travel)
+    this.carMemory = {};       // city → {spotIndex: {x,z,ry}} — cars stay where you parked them
 
     window.addEventListener("resize", () => {
       if (window.innerWidth < 2 || window.innerHeight < 2) return; // minimized/hidden
@@ -353,6 +354,7 @@ export class Game {
     }
 
     this._setupExtras(key, data);
+    this._restoreMovedCars(key);
 
     // spawn
     const spawn = this._spawnPoint(key);
@@ -702,6 +704,10 @@ export class Game {
       s.taken = false;
       s.collider = this.world.addCollider(
         rectPoly(s.x, s.z, d.spec.dims[0] / 2 + 0.12, d.spec.dims[1] / 2 + 0.18, s.ry), 1.7);
+      // remember where it's parked — surviving restaurant/campus visits
+      if (!this.worldKey.includes(":")) {
+        (this.carMemory[this.worldKey] ??= {})[s.index] = { x: s.x, z: s.z, ry: s.ry };
+      }
       if (!silent) Net.sendEvent("car", {
         i: s.index, on: false, x: +s.x.toFixed(2), z: +s.z.toFixed(2), ry: +s.ry.toFixed(3),
         world: this.worldKey,
@@ -715,6 +721,30 @@ export class Game {
     const oz = g.position.z - Math.sin(g.rotation.y) * side * 1.7;
     const [cx, cz] = this.world.findClearSpot ? this.world.findClearSpot(ox, oz, 1.5) : [ox, oz];
     this.controls.pos.set(cx, 0, cz);
+  }
+
+  // the city is rebuilt fresh after every restaurant/campus visit — put the
+  // cars back where they were actually parked
+  _restoreMovedCars(key) {
+    const mem = this.carMemory[key];
+    if (!mem || !this.world?.carSpots) return;
+    for (const [idx, pose] of Object.entries(mem)) {
+      const spot = this.world.carSpots[idx];
+      if (!spot) continue;
+      this.world.takeCar(spot); // hide the freshly-rebuilt parked instance
+      const car = makeDriveCar(spot.model, spot.paint);
+      car.headlight.intensity = 0;
+      spot.x = pose.x; spot.z = pose.z; spot.ry = pose.ry;
+      spot.y = this.world.surfaceY ? this.world.surfaceY(pose.x, pose.z) : 0;
+      car.group.position.set(spot.x, spot.y, spot.z);
+      car.group.rotation.y = spot.ry;
+      this.scene.add(car.group);
+      this.liveCars.push(car.group);
+      spot.parkedCar = { group: car.group, wheels: car.wheels, spec: car.spec, headlight: car.headlight };
+      spot.taken = false;
+      spot.collider = this.world.addCollider(
+        rectPoly(spot.x, spot.z, car.spec.dims[0] / 2 + 0.12, car.spec.dims[1] / 2 + 0.18, spot.ry), 1.7);
+    }
   }
 
   // render/clear the partner's car from their events
@@ -750,6 +780,9 @@ export class Game {
         s.taken = false;
         s.collider = this.world.addCollider(
           rectPoly(s.x, s.z, car.spec.dims[0] / 2 + 0.12, car.spec.dims[1] / 2 + 0.18, s.ry), 1.7);
+        if (!this.worldKey.includes(":")) {
+          (this.carMemory[this.worldKey] ??= {})[s.index] = { x: s.x, z: s.z, ry: s.ry };
+        }
         this.remoteCar = null;
       }
       if (this.remote) this.remote.avatar.group.visible = true;
@@ -1052,6 +1085,19 @@ export class Game {
       this.groundY,
       photoreal ? (origin, dir, far) => this.world.rayDistance(origin, dir, far) : null
     );
+    if (this.world.isInterior) {
+      // keep the camera INSIDE the room — never above the ceiling or
+      // through a wall looking back in
+      this.controls.pitch = Math.min(this.controls.pitch, 0.6);
+      this.controls.dist = Math.min(this.controls.dist, 7.5);
+      const cp = this.camera.position;
+      const hw = this.world.W / 2 - 0.7, hd = this.world.D / 2 - 0.7;
+      const fy = (this.world.floor ?? 0) * 3.8;
+      cp.x = Math.max(-hw, Math.min(hw, cp.x));
+      cp.z = Math.max(-hd, Math.min(hd, cp.z));
+      cp.y = Math.max(fy + 0.7, Math.min(fy + 3.05, cp.y));
+      this.camera.lookAt(p.x, this.groundY + 1.4, p.z);
+    }
     this.world.updateSun(p);
     this.world.tick(t, dt);
     for (const e of this.extras) e.tick?.(t, dt);

@@ -12,6 +12,7 @@ import {
 import { TUNING, STYLE_DEFS } from "./cityTuning.js";
 import { isRestaurant } from "./cuisines.js";
 import { modelParts, pickModel, TRIM_MAT } from "./cars.js";
+import { Avatar, randomNpcLook } from "./Avatar.js";
 
 const TEXTURE_FACTORIES = {
   facade: facadeTexture,
@@ -220,6 +221,7 @@ export class WorldBuilder {
     tmark("medians", () => this.buildMedians());
     tmark("tollway", () => this.buildTollway());
     if (theme.streetlights) tmark("lamps", () => this.buildStreetlamps());
+    tmark("streetLife", () => this.buildStreetLife());
     tmark("clouds+lights+boundary", () => { this.buildClouds(); this.buildLights(); this.buildBoundary(); });
     onProgress?.(1, "done");
 
@@ -2053,6 +2055,447 @@ export class WorldBuilder {
     });
   }
 
+  // ----------------------------------------------------------- street life
+  // Everything the Street View references are full of and the bare map
+  // wasn't: utility poles with sagging wire webs, parked scooters, warung
+  // signboards, billboards, pole banners, bollards, kaki-lima carts, and
+  // actual people walking the sidewalks.
+  buildStreetLife() {
+    const sl = this.theme.streetLife;
+    if (!sl) return;
+    if (sl.poles) this.buildPowerLines();
+    if (sl.scooters) this.buildScooters();
+    if (sl.warungSigns) this.buildWarungSigns();
+    if (sl.billboards) this.buildBillboards();
+    if (sl.banners) this.buildPoleBanners();
+    if (sl.bollards) this.buildBollards();
+    if (sl.carts) this.buildVendorCarts();
+    if (sl.peds) this.buildPedestrians(sl.peds);
+  }
+
+  // residential roads sorted closest-first so street life fills the heart
+  // of the map before the caps run out (raw bake order clumps in one corner)
+  _lifeRoads(wMin, wMax) {
+    if (!this._lifeSorted) {
+      this._lifeSorted = this.data.roads
+        .filter((r) => r.t === "road" && !isHighway(r) && r.p.length >= 2)
+        .map((r) => ({ r, d: Math.min(...r.p.map(([x, z]) => x * x + z * z)) }))
+        .sort((a, b) => a.d - b.d);
+    }
+    return this._lifeSorted.filter(({ r }) => r.w >= wMin && r.w <= wMax).map(({ r }) => r);
+  }
+
+  // concrete poles + drooping cable webs — THE kampung silhouette
+  buildPowerLines() {
+    const { rng } = this;
+    const poles = [];
+    const wirePts = [];
+    for (const r of this._lifeRoads(4, 9)) {
+      let prev = null;
+      let acc = 20 + rng() * 20;
+      for (let i = 1; i < r.p.length && poles.length < 1400; i++) {
+        const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
+        const segLen = Math.hypot(bx - ax, bz - az);
+        const dx = (bx - ax) / segLen, dz = (bz - az) / segLen;
+        const nx = -dz, nz = dx;
+        for (let d = 0; d < segLen; d += 8) {
+          acc += 8;
+          if (acc < 34) continue;
+          acc = 0;
+          const x = ax + dx * d + nx * (r.w / 2 + 1.1);
+          const z = az + dz * d + nz * (r.w / 2 + 1.1);
+          if (Math.hypot(x, z) > this.data.radius - 20) { prev = null; continue; }
+          const y = this.surfaceY(x, z);
+          poles.push([x, y, z]);
+          if (prev) {
+            const span = Math.hypot(x - prev[0], z - prev[2]);
+            if (span < 55) {
+              // two sagging cables per span (top + comm line)
+              for (const h of [6.6, 6.1]) {
+                const mx = (x + prev[0]) / 2, mz = (z + prev[2]) / 2;
+                const my = Math.min(y, prev[1]) + h - 0.5;
+                wirePts.push(
+                  prev[0], prev[1] + h, prev[2], mx, my, mz,
+                  mx, my, mz, x, y + h, z
+                );
+              }
+            }
+          }
+          prev = [x, y, z];
+        }
+        if (poles.length >= 1400) break;
+      }
+    }
+    if (!poles.length) return;
+    const poleGeo = mergeGeometries([
+      new THREE.CylinderGeometry(0.09, 0.13, 7.0, 6).translate(0, 3.5, 0),
+      new THREE.BoxGeometry(1.5, 0.09, 0.09).translate(0, 6.55, 0), // crossarm
+    ], false);
+    const poleMesh = new THREE.InstancedMesh(poleGeo, new THREE.MeshLambertMaterial({ color: 0x6e695f }), poles.length);
+    const m = new THREE.Matrix4();
+    poles.forEach(([x, y, z], i) => {
+      m.makeTranslation(x, y, z);
+      poleMesh.setMatrixAt(i, m);
+      this.addCollider(rectPoly(x, z, 0.16, 0.16, 0), 4);
+    });
+    this.group.add(poleMesh);
+
+    const wireGeo = new THREE.BufferGeometry();
+    wireGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(wirePts), 3));
+    this.group.add(new THREE.LineSegments(wireGeo, new THREE.LineBasicMaterial({ color: 0x1c1a18, transparent: true, opacity: 0.8 })));
+  }
+
+  // parked scooters in little leaning clusters by the shops and lanes
+  buildScooters() {
+    const { rng } = this;
+    const spots = [];
+    for (const r of this._lifeRoads(4, 8)) {
+      for (let i = 1; i < r.p.length && spots.length < 260; i++) {
+        const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
+        const segLen = Math.hypot(bx - ax, bz - az);
+        if (segLen < 14 || rng() > 0.3) continue;
+        const dx = (bx - ax) / segLen, dz = (bz - az) / segLen;
+        const nx = -dz, nz = dx;
+        const t = 0.2 + rng() * 0.6;
+        const side = rng() > 0.5 ? 1 : -1;
+        const baseX = ax + (bx - ax) * t + nx * side * (r.w / 2 + 0.7);
+        const baseZ = az + (bz - az) * t + nz * side * (r.w / 2 + 0.7);
+        if (Math.hypot(baseX, baseZ) > 1400) continue;
+        const n = 1 + Math.floor(rng() * 3);
+        for (let k = 0; k < n && spots.length < 230; k++) {
+          spots.push({
+            x: baseX + dx * k * 0.9, z: baseZ + dz * k * 0.9,
+            ry: Math.atan2(nx * side, nz * side) + (rng() - 0.5) * 0.5,
+          });
+        }
+      }
+    }
+    if (!spots.length) return;
+    // one merged scooter: floorboard, seat, column, wheels, mirrors
+    const bodyGeo = mergeGeometries([
+      new THREE.BoxGeometry(0.32, 0.1, 0.7).translate(0, 0.36, 0.1),       // floorboard
+      new THREE.BoxGeometry(0.34, 0.18, 0.62).translate(0, 0.62, -0.32),   // seat+tail
+      new THREE.BoxGeometry(0.3, 0.42, 0.16).translate(0, 0.62, 0.52),     // front shield
+      new THREE.BoxGeometry(0.4, 0.05, 0.05).translate(0, 0.95, 0.5),      // bars
+    ], false);
+    const darkGeo = mergeGeometries([
+      new THREE.CylinderGeometry(0.22, 0.22, 0.09, 10).rotateZ(Math.PI / 2).translate(0, 0.22, 0.62),
+      new THREE.CylinderGeometry(0.22, 0.22, 0.09, 10).rotateZ(Math.PI / 2).translate(0, 0.22, -0.5),
+    ], false);
+    const body = new THREE.InstancedMesh(bodyGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), spots.length);
+    const dark = new THREE.InstancedMesh(darkGeo, new THREE.MeshLambertMaterial({ color: 0x16161a }), spots.length);
+    const palette = [0xc8332a, 0x222730, 0x3a5e8c, 0xd8d5cc, 0x88332a, 0x2c4a38].map((c) => new THREE.Color(c));
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), eu = new THREE.Euler();
+    spots.forEach((s, i) => {
+      eu.set(0, s.ry, 0.06);
+      q.setFromEuler(eu);
+      m.compose(new THREE.Vector3(s.x, this.surfaceY(s.x, s.z), s.z), q, new THREE.Vector3(1, 1, 1));
+      body.setMatrixAt(i, m);
+      dark.setMatrixAt(i, m);
+      body.setColorAt(i, palette[Math.floor(rng() * palette.length)]);
+    });
+    body.castShadow = true;
+    this.group.add(body, dark);
+  }
+
+  // standing warung/toko boards along the kampung lane frontages
+  buildWarungSigns() {
+    const { rng } = this;
+    const texts = [
+      ["WARUNG MAKAN", "#c8332a", "#fff3df"], ["TOKO KELONTONG", "#1f5a8c", "#f0f4f8"],
+      ["LAUNDRY KILOAN", "#2a8c5a", "#f0fff6"], ["BENGKEL MOTOR", "#222428", "#ffd23c"],
+      ["PANGKAS RAMBUT", "#8c2a6e", "#fdf0f8"], ["ES TEH · KOPI", "#c87f1d", "#fff8ea"],
+    ];
+    const mats = texts.map(([t, bg, fg]) => {
+      const cv = document.createElement("canvas");
+      cv.width = 256; cv.height = 64;
+      const ctx = cv.getContext("2d");
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, 256, 64);
+      ctx.strokeStyle = fg; ctx.lineWidth = 4; ctx.strokeRect(4, 4, 248, 56);
+      ctx.fillStyle = fg; ctx.font = "bold 26px Arial";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(t, 128, 34);
+      const tex = new THREE.CanvasTexture(cv);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide });
+    });
+    const buckets = mats.map(() => []);
+    for (const r of this._lifeRoads(4, 7)) {
+      for (let i = 1; i < r.p.length; i++) {
+        const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
+        const segLen = Math.hypot(bx - ax, bz - az);
+        if (segLen < 18 || rng() > 0.22) continue;
+        const dx = (bx - ax) / segLen, dz = (bz - az) / segLen;
+        const nx = -dz, nz = dx;
+        const t = 0.25 + rng() * 0.5;
+        const side = rng() > 0.5 ? 1 : -1;
+        const x = ax + (bx - ax) * t + nx * side * (r.w / 2 + 1.9);
+        const z = az + (bz - az) * t + nz * side * (r.w / 2 + 1.9);
+        if (Math.hypot(x, z) > 1500) continue;
+        buckets[Math.floor(rng() * mats.length)].push({ x, z, ry: Math.atan2(nx * side, nz * side) });
+        if (buckets.flat().length > 170) break;
+      }
+      if (buckets.flat().length > 170) break;
+    }
+    const frame = new THREE.MeshLambertMaterial({ color: 0x4a4438 });
+    buckets.forEach((list, mi) => {
+      if (!list.length) return;
+      const board = new THREE.InstancedMesh(new THREE.PlaneGeometry(2.0, 0.55).translate(0, 1.65, 0), mats[mi], list.length);
+      const legs = new THREE.InstancedMesh(mergeGeometries([
+        new THREE.BoxGeometry(0.06, 1.9, 0.06).translate(-0.85, 0.95, 0),
+        new THREE.BoxGeometry(0.06, 1.9, 0.06).translate(0.85, 0.95, 0),
+      ], false), frame, list.length);
+      const m = new THREE.Matrix4(), q = new THREE.Quaternion(), eu = new THREE.Euler();
+      list.forEach((s, i) => {
+        eu.set(0, s.ry, 0);
+        q.setFromEuler(eu);
+        m.compose(new THREE.Vector3(s.x, this.surfaceY(s.x, s.z), s.z), q, new THREE.Vector3(1, 1, 1));
+        board.setMatrixAt(i, m);
+        legs.setMatrixAt(i, m);
+      });
+      this.group.add(board, legs);
+    });
+  }
+
+  // big roadside billboards on the boulevard + toll frontage
+  buildBillboards() {
+    const { rng } = this;
+    const ads = [
+      ["LIPPO VILLAGE", "rumah idaman keluarga", "#13427a", "#ffffff"],
+      ["ES TEH MANIS", "segar setiap hari!", "#c8332a", "#fff3c4"],
+      ["SUPERMAL KARAWACI", "weekend SALE 70%", "#7a1d6e", "#ffe9f8"],
+      ["KOPI NUSANTARA", "diseduh dengan cinta", "#3a2c1c", "#f4e2c4"],
+      ["5G UNTUK SEMUA", "sinyal kuat sampai kampung", "#0d5a8c", "#e8f6ff"],
+    ];
+    const spots = [];
+    for (const r of this._lifeRoads(9, 14)) {
+      for (let i = 1; i < r.p.length && spots.length < 16; i++) {
+        const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
+        const segLen = Math.hypot(bx - ax, bz - az);
+        if (segLen < 60 || rng() > 0.3) continue;
+        const dx = (bx - ax) / segLen, dz = (bz - az) / segLen;
+        const nx = -dz, nz = dx;
+        const side = rng() > 0.5 ? 1 : -1;
+        const t = 0.3 + rng() * 0.4;
+        const x = ax + (bx - ax) * t + nx * side * (r.w / 2 + 7);
+        const z = az + (bz - az) * t + nz * side * (r.w / 2 + 7);
+        if (Math.hypot(x, z) > 1600) continue;
+        spots.push({ x, z, ry: Math.atan2(nx * side, nz * side) + Math.PI });
+      }
+    }
+    spots.forEach((s, i) => {
+      const [title, sub, bg, fg] = ads[i % ads.length];
+      const cv = document.createElement("canvas");
+      cv.width = 512; cv.height = 256;
+      const ctx = cv.getContext("2d");
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, 512, 256);
+      ctx.fillStyle = fg;
+      ctx.font = "bold 58px Arial";
+      ctx.textAlign = "center";
+      ctx.fillText(title, 256, 120);
+      ctx.font = "italic 34px Georgia";
+      ctx.fillText(sub, 256, 185);
+      const tex = new THREE.CanvasTexture(cv);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const grp = new THREE.Group();
+      const panel = new THREE.Mesh(new THREE.PlaneGeometry(8, 4), new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide }));
+      panel.position.y = 8.2;
+      grp.add(panel);
+      const back = new THREE.Mesh(new THREE.BoxGeometry(8.2, 4.2, 0.18), new THREE.MeshLambertMaterial({ color: 0x55595f }));
+      back.position.set(0, 8.2, -0.12);
+      grp.add(back);
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.3, 6.2, 8), new THREE.MeshLambertMaterial({ color: 0x6e7278 }));
+      post.position.y = 3.1;
+      grp.add(post);
+      grp.position.set(s.x, this.surfaceY(s.x, s.z), s.z);
+      grp.rotation.y = s.ry;
+      grp.traverse((o) => { o.castShadow = true; });
+      this.group.add(grp);
+      this.addCollider(rectPoly(s.x, s.z, 0.5, 0.5, 0), 6);
+    });
+  }
+
+  // vertical promo banners on the boulevard light poles
+  buildPoleBanners() {
+    const { rng } = this;
+    const spots = [];
+    for (const r of this._lifeRoads(9, 12)) {
+      let acc = 0;
+      for (let i = 1; i < r.p.length && spots.length < 64; i++) {
+        const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
+        const segLen = Math.hypot(bx - ax, bz - az);
+        acc += segLen;
+        if (acc < 70) continue;
+        acc = 0;
+        const dx = (bx - ax) / segLen, dz = (bz - az) / segLen;
+        const nx = -dz, nz = dx;
+        const side = rng() > 0.5 ? 1 : -1;
+        const x = ax + (bx - ax) * 0.5 + nx * side * (r.w / 2 + 1.4);
+        const z = az + (bz - az) * 0.5 + nz * side * (r.w / 2 + 1.4);
+        if (Math.hypot(x, z) > 900) continue;
+        spots.push({ x, z, ry: Math.atan2(dx, dz) });
+      }
+    }
+    if (!spots.length) return;
+    const cv = document.createElement("canvas");
+    cv.width = 64; cv.height = 256;
+    const ctx = cv.getContext("2d");
+    ctx.fillStyle = "#a8232e"; ctx.fillRect(0, 0, 64, 256);
+    ctx.fillStyle = "#f6e6c4";
+    ctx.font = "bold 30px Georgia";
+    ctx.textAlign = "center";
+    ctx.save();
+    ctx.translate(32, 128);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText("LIPPO VILLAGE", 0, 10);
+    ctx.restore();
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const poleGeo = new THREE.CylinderGeometry(0.06, 0.08, 4.6, 6).translate(0, 2.3, 0);
+    const bannerGeo = new THREE.PlaneGeometry(0.6, 2.2).translate(0.42, 3.2, 0);
+    const poleMesh = new THREE.InstancedMesh(poleGeo, new THREE.MeshLambertMaterial({ color: 0x2a2a30 }), spots.length);
+    const bMesh = new THREE.InstancedMesh(bannerGeo, new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide }), spots.length);
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), eu = new THREE.Euler();
+    spots.forEach((s, i) => {
+      eu.set(0, s.ry, 0);
+      q.setFromEuler(eu);
+      m.compose(new THREE.Vector3(s.x, this.surfaceY(s.x, s.z), s.z), q, new THREE.Vector3(1, 1, 1));
+      poleMesh.setMatrixAt(i, m);
+      bMesh.setMatrixAt(i, m);
+      this.addCollider(rectPoly(s.x, s.z, 0.14, 0.14, 0), 4);
+    });
+    this.group.add(poleMesh, bMesh);
+  }
+
+  // short black bollards guarding the boulevard sidewalks
+  buildBollards() {
+    const { rng } = this;
+    const spots = [];
+    for (const r of this._lifeRoads(9, 12)) {
+      for (let i = 1; i < r.p.length && spots.length < 380; i++) {
+        const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
+        const segLen = Math.hypot(bx - ax, bz - az);
+        if (segLen < 10) continue;
+        const dx = (bx - ax) / segLen, dz = (bz - az) / segLen;
+        const nx = -dz, nz = dx;
+        for (let d = 4; d < segLen && spots.length < 380; d += 7) {
+          if (rng() > 0.8) continue;
+          const side = rng() > 0.5 ? 1 : -1;
+          const x = ax + dx * d + nx * side * (r.w / 2 + 0.55);
+          const z = az + dz * d + nz * side * (r.w / 2 + 0.55);
+          if (Math.hypot(x, z) > 650) continue;
+          spots.push([x, z]);
+        }
+      }
+    }
+    if (!spots.length) return;
+    const geo = new THREE.CylinderGeometry(0.09, 0.11, 0.75, 8).translate(0, 0.37, 0);
+    const mesh = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({ color: 0x26282c }), spots.length);
+    const m = new THREE.Matrix4();
+    spots.forEach(([x, z], i) => {
+      m.makeTranslation(x, this.surfaceY(x, z), z);
+      mesh.setMatrixAt(i, m);
+    });
+    this.group.add(mesh);
+  }
+
+  // kaki-lima vendor carts with umbrellas, parked near the lanes
+  buildVendorCarts() {
+    const { rng } = this;
+    const colors = [0xc8332a, 0x2a6e3a, 0x2a4a8c, 0xc87f1d];
+    let placed = 0;
+    for (const r of this._lifeRoads(4, 7)) {
+      if (placed >= 9) break;
+      for (let i = 1; i < r.p.length && placed < 9; i++) {
+        const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
+        const segLen = Math.hypot(bx - ax, bz - az);
+        if (segLen < 24 || rng() > 0.06) continue;
+        const dx = (bx - ax) / segLen, dz = (bz - az) / segLen;
+        const nx = -dz, nz = dx;
+        const side = rng() > 0.5 ? 1 : -1;
+        const x = ax + (bx - ax) * 0.5 + nx * side * (r.w / 2 + 1.4);
+        const z = az + (bz - az) * 0.5 + nz * side * (r.w / 2 + 1.4);
+        if (Math.hypot(x, z) > 900 || this.blocked(x, z)) continue;
+        const grp = new THREE.Group();
+        const cartC = colors[Math.floor(rng() * colors.length)];
+        const box = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.8, 0.75), new THREE.MeshLambertMaterial({ color: cartC }));
+        box.position.y = 0.85;
+        box.castShadow = true;
+        grp.add(box);
+        const glass = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.4, 0.6), new THREE.MeshLambertMaterial({ color: 0xd8e2e8 }));
+        glass.position.y = 1.42;
+        grp.add(glass);
+        for (const wx of [-0.55, 0.55]) {
+          const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.07, 10).rotateZ(Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x222226 }));
+          wheel.position.set(wx, 0.26, 0);
+          grp.add(wheel);
+        }
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.7, 6), new THREE.MeshLambertMaterial({ color: 0x6a5a3c }));
+        pole.position.set(0.3, 2.1, 0);
+        grp.add(pole);
+        const umb = new THREE.Mesh(new THREE.ConeGeometry(1.25, 0.5, 10), new THREE.MeshLambertMaterial({ color: colors[(placed + 1) % colors.length], side: THREE.DoubleSide }));
+        umb.position.set(0.3, 3.0, 0);
+        grp.add(umb);
+        grp.position.set(x, this.surfaceY(x, z), z);
+        grp.rotation.y = Math.atan2(dx, dz);
+        this.group.add(grp);
+        this.addCollider(rectPoly(x, z, 0.9, 0.6, Math.atan2(dx, dz)), 2);
+        placed++;
+      }
+    }
+  }
+
+  // people actually walking the sidewalks
+  buildPedestrians(count) {
+    const { rng } = this;
+    this.peds = [];
+    const routes = [];
+    for (const r of this._lifeRoads(5, 11)) {
+      let len = 0;
+      for (let i = 1; i < r.p.length; i++) len += Math.hypot(r.p[i][0] - r.p[i - 1][0], r.p[i][1] - r.p[i - 1][1]);
+      if (len < 40) continue;
+      const d0 = Math.hypot(r.p[0][0], r.p[0][1]);
+      if (d0 > 700) continue; // keep the crowd near the heart of the map
+      routes.push({ r, len });
+      if (routes.length > count * 3) break;
+    }
+    for (let k = 0; k < count && routes.length; k++) {
+      const route = routes[Math.floor(rng() * routes.length)];
+      const look = randomNpcLook(rng);
+      const role = look.hairstyle === "long" || look.hairstyle === "bun" ? "her" : "you";
+      const av = new Avatar(role, "", { npcLook: look });
+      this.group.add(av.group);
+      this.peds.push({
+        avatar: av, route: route.r, routeLen: route.len,
+        s: rng() * route.len, dir: rng() > 0.5 ? 1 : -1,
+        side: rng() > 0.5 ? 1 : -1, speed: 0.8 + rng() * 0.7,
+      });
+    }
+  }
+
+  _pedPose(ped) {
+    // arc-length position along the road polyline, offset to the sidewalk
+    const pts = ped.route.p;
+    let s = ped.s;
+    for (let i = 1; i < pts.length; i++) {
+      const [ax, az] = pts[i - 1], [bx, bz] = pts[i];
+      const segLen = Math.hypot(bx - ax, bz - az);
+      if (s <= segLen) {
+        const t = s / segLen;
+        const dx = (bx - ax) / segLen, dz = (bz - az) / segLen;
+        const nx = -dz, nz = dx;
+        const off = ped.route.w / 2 + 1.3;
+        return {
+          x: ax + (bx - ax) * t + nx * ped.side * off,
+          z: az + (bz - az) * t + nz * ped.side * off,
+          ry: Math.atan2(dx * ped.dir, dz * ped.dir),
+        };
+      }
+      s -= segLen;
+    }
+    return null;
+  }
+
   // -------------------------------------------------------------- queries
   // spatial index: with 10k+ buildings a linear scan per frame would crawl
   _collisionIndex() {
@@ -2132,6 +2575,25 @@ export class WorldBuilder {
 
   tick(t, dt) {
     for (const fn of this.animated) fn(t, dt);
+    if (this.peds) {
+      for (const ped of this.peds) {
+        ped.s += ped.speed * ped.dir * dt;
+        if (ped.s <= 0 || ped.s >= ped.routeLen) {
+          ped.dir = -ped.dir;
+          ped.s = Math.max(0.01, Math.min(ped.routeLen - 0.01, ped.s));
+        }
+        const pose = this._pedPose(ped);
+        if (!pose) continue;
+        if (this.blocked(pose.x, pose.z)) { ped.dir = -ped.dir; continue; }
+        const g = ped.avatar.group;
+        g.position.set(pose.x, this.surfaceY(pose.x, pose.z), pose.z);
+        let dh = pose.ry - g.rotation.y;
+        while (dh > Math.PI) dh -= Math.PI * 2;
+        while (dh < -Math.PI) dh += Math.PI * 2;
+        g.rotation.y += dh * Math.min(1, dt * 8);
+        ped.avatar.animate(dt, ped.speed, t);
+      }
+    }
   }
 
   dispose() {

@@ -20,6 +20,7 @@ export const THEMES = {
     roofTint: 0.72,
     night: false,
     streetlights: false,
+    streetLife: { peds: 12 },
     // textured facade styles: brick rowhouse, brown brick, modern glass (MIT-ish)
     facadeStyles: [
       { type: "facade", weight: 4, opts: { base: "#94553e", brick: {}, glassTop: "#cfe0ec", glassBottom: "#4a5f70", seed: 11 } },
@@ -62,6 +63,8 @@ export const THEMES = {
     roofColor: 0xa84a32, // terracotta roofs
     night: false,
     streetlights: true, // black lamp posts line the Lippo avenues
+    // the reference photos are FULL of life — poles, wires, scooters, warungs
+    streetLife: { poles: true, scooters: true, billboards: true, warungSigns: true, banners: true, bollards: true, carts: true, peds: 22 },
     facadeStyles: [
       { type: "house", weight: 5, opts: { base: "#efe6d2", trim: "#b8a888", seed: 5 } },
       { type: "house", weight: 4, opts: { base: "#f4efe4", trim: "#9aa48e", seed: 9 } },
@@ -120,6 +123,7 @@ export const THEMES = {
     night: true,
     stars: true,
     streetlights: true,
+    streetLife: { peds: 18 },
     // moonlit Haussmann limestone: warm cream-grays, not purple
     facadeStyles: [
       { type: "facade", weight: 5, opts: { base: "#8c8472", stone: true, balconies: true, shutters: true, lit: 0.42, glassTop: "#3a3f56", glassBottom: "#23283c", frame: "rgba(22,22,26,0.95)", seed: 7 } },
