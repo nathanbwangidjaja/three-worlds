@@ -37,6 +37,7 @@ const opt = (name, dflt) => {
 };
 const STEP = opt("step", 55);
 const RADIUS = opt("radius", 700);
+const MIN_RADIUS = opt("minradius", 0);
 const CAP = opt("cap", 300);
 
 const { lat: lat0, lon: lon0 } = CITIES[city];
@@ -81,7 +82,8 @@ for (const r of data.roads) {
     const bearing = ((Math.atan2(dx, -dz) * 180) / Math.PI + 360) % 360;
     for (let d = 0; d < segLen; d += STEP) {
       const x = ax + dx * d, z = az + dz * d;
-      if (Math.hypot(x, z) > RADIUS) continue;
+      const dist = Math.hypot(x, z);
+      if (dist > RADIUS || dist < MIN_RADIUS) continue;
       samples.push({ x, z, bearing });
     }
   }

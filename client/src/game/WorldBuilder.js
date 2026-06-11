@@ -7,7 +7,7 @@ import {
   facadeTexture, houseWallTexture, storefrontTexture, roofTexture, flatRoofTexture,
   asphaltTexture, sidewalkTexture, grassTexture, cloudTexture, glowTexture,
   panelGridTexture, curtainWallTexture, ribbonBandTexture, garageTexture,
-  fenceTexture,
+  fenceTexture, mansardTexture,
 } from "./textures.js";
 import { TUNING, STYLE_DEFS } from "./cityTuning.js";
 
@@ -727,7 +727,7 @@ export class WorldBuilder {
             const base = mansardBuf.n;
             mansardBuf.pos.push(ax, h, az, bx, h, bz, ibx, topY, ibz, iax, topY, iaz);
             const len = Math.hypot(bx - ax, bz - az);
-            mansardBuf.uv.push(0, 0, len / 3, 0, len / 3, 1, 0, 1);
+            mansardBuf.uv.push(0, 0, len / 9, 0, len / 9, 1, 0, 1); // dormer every ~4.5m
             mansardBuf.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
             mansardBuf.n += 4;
           }
@@ -758,10 +758,14 @@ export class WorldBuilder {
     }
     if (shopMat) buildBufMesh(shopBuf, shopMat);
     if (mansardBuf.n && mansardCfg) {
-      buildBufMesh(
-        { ...mansardBuf, col: null },
-        new THREE.MeshLambertMaterial({ color: mansardCfg.color, side: THREE.DoubleSide })
-      );
+      const mPair = mansardTexture({ base: mansardCfg.color, lit: theme.night ? 0.38 : 0 });
+      const mMat = new THREE.MeshLambertMaterial({ map: mPair.map, side: THREE.DoubleSide });
+      if (theme.night && mPair.emissive) {
+        mMat.emissiveMap = mPair.emissive;
+        mMat.emissive = new THREE.Color(0xffffff);
+        mMat.emissiveIntensity = 1.0;
+      }
+      buildBufMesh({ ...mansardBuf, col: null }, mMat);
     }
 
     if (flatGeos.length) {
@@ -901,6 +905,28 @@ export class WorldBuilder {
         placed++;
       }
     }
+    // allée rows along the park paths (the Champ de Mars in the refs)
+    if (theme.alleeTrees) {
+      for (const r of this.data.roads) {
+        if (r.t !== "path") continue;
+        for (let i = 1; i < r.p.length && spots.length < 1500; i++) {
+          const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
+          const segLen = Math.hypot(bx - ax, bz - az);
+          if (segLen < 8) continue;
+          const dx = (bx - ax) / segLen, dz = (bz - az) / segLen;
+          const nx = -dz, nz = dx;
+          for (let d = 5; d < segLen; d += 12) {
+            for (const side of [-1, 1]) {
+              const x = ax + dx * d + nx * side * (r.w / 2 + 2.2);
+              const z = az + dz * d + nz * side * (r.w / 2 + 2.2);
+              if (Math.hypot(x, z) > 460) continue;
+              spots.push([x, z]);
+            }
+          }
+        }
+      }
+    }
+
     // urban street trees in sidewalk rows (Kendall blocks in the refs)
     if (theme.streetTrees) {
       for (const r of this.data.roads) {
@@ -969,6 +995,7 @@ export class WorldBuilder {
       this.buildShrubs();
     }
     if (theme.crosswalks) this.buildCrosswalks();
+    if (theme.parkFurniture) this.buildParkFurniture();
 
     if (theme.treeKind === "palm") {
       this.buildPalms(trees, foliageColors);
@@ -1133,6 +1160,103 @@ export class WorldBuilder {
     this.group.add(mesh);
   }
 
+  // Paris park furniture: green benches along the allées + Morris columns
+  buildParkFurniture() {
+    const { rng } = this;
+    const benchSpots = [];
+    for (const r of this.data.roads) {
+      if (r.t !== "path") continue;
+      for (let i = 1; i < r.p.length && benchSpots.length < 120; i++) {
+        const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
+        const segLen = Math.hypot(bx - ax, bz - az);
+        if (segLen < 6) continue;
+        const dx = (bx - ax) / segLen, dz = (bz - az) / segLen;
+        const nx = -dz, nz = dx;
+        for (let d = 8; d < segLen; d += 38 + rng() * 18) {
+          if (rng() > 0.5) continue;
+          const side = rng() > 0.5 ? 1 : -1;
+          const x = ax + dx * d + nx * side * (r.w / 2 + 1.0);
+          const z = az + dz * d + nz * side * (r.w / 2 + 1.0);
+          if (Math.hypot(x, z) > 480) continue;
+          // face the path
+          benchSpots.push({ x, z, ry: Math.atan2(-nx * side, -nz * side) });
+        }
+      }
+      if (benchSpots.length >= 120) break;
+    }
+    if (benchSpots.length) {
+      const green = new THREE.MeshLambertMaterial({ color: 0x2e4a34 });
+      const seatGeo = new THREE.BoxGeometry(1.9, 0.09, 0.55);
+      seatGeo.translate(0, 0.48, 0);
+      const backGeo = new THREE.BoxGeometry(1.9, 0.55, 0.08);
+      backGeo.translate(0, 0.92, -0.26);
+      const legGeo = mergeGeometries([
+        new THREE.BoxGeometry(0.08, 0.48, 0.5).translate(-0.8, 0.24, 0),
+        new THREE.BoxGeometry(0.08, 0.48, 0.5).translate(0.8, 0.24, 0),
+      ], false);
+      const seats = new THREE.InstancedMesh(seatGeo, green, benchSpots.length);
+      const backs = new THREE.InstancedMesh(backGeo, green, benchSpots.length);
+      const legs = new THREE.InstancedMesh(legGeo, new THREE.MeshLambertMaterial({ color: 0x222724 }), benchSpots.length);
+      const m = new THREE.Matrix4();
+      const q = new THREE.Quaternion();
+      const eu = new THREE.Euler();
+      benchSpots.forEach((s, i) => {
+        eu.set(0, s.ry, 0);
+        q.setFromEuler(eu);
+        m.compose(new THREE.Vector3(s.x, 0, s.z), q, new THREE.Vector3(1, 1, 1));
+        seats.setMatrixAt(i, m);
+        backs.setMatrixAt(i, m);
+        legs.setMatrixAt(i, m);
+      });
+      seats.castShadow = true;
+      this.group.add(seats, backs, legs);
+    }
+
+    // Morris columns along the avenues
+    const colSpots = [];
+    for (const r of this.data.roads) {
+      if (r.t !== "road" || r.w < 7) continue;
+      for (let i = 1; i < r.p.length && colSpots.length < 18; i++) {
+        const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
+        const segLen = Math.hypot(bx - ax, bz - az);
+        if (segLen < 30 || rng() > 0.3) continue;
+        const dx = (bx - ax) / segLen, dz = (bz - az) / segLen;
+        const nx = -dz, nz = dx;
+        const side = rng() > 0.5 ? 1 : -1;
+        const t = 0.3 + rng() * 0.4;
+        const x = ax + (bx - ax) * t + nx * side * (r.w / 2 + 2.2);
+        const z = az + (bz - az) * t + nz * side * (r.w / 2 + 2.2);
+        if (Math.hypot(x, z) > 480) continue;
+        colSpots.push([x, z]);
+      }
+      if (colSpots.length >= 18) break;
+    }
+    if (colSpots.length) {
+      const bodyGeo = new THREE.CylinderGeometry(0.55, 0.55, 2.6, 10);
+      bodyGeo.translate(0, 1.3, 0);
+      const capGeo = new THREE.SphereGeometry(0.62, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2);
+      capGeo.translate(0, 2.6, 0);
+      const posterGeo = new THREE.CylinderGeometry(0.57, 0.57, 1.5, 10, 1, true);
+      posterGeo.translate(0, 1.45, 0);
+      const greenMat = new THREE.MeshLambertMaterial({ color: 0x23362a });
+      const posterMat = new THREE.MeshLambertMaterial({
+        color: 0x8a7656, emissive: 0x4a3c22, emissiveIntensity: this.theme.night ? 0.8 : 0,
+      });
+      const bodies = new THREE.InstancedMesh(bodyGeo, greenMat, colSpots.length);
+      const caps = new THREE.InstancedMesh(capGeo, greenMat, colSpots.length);
+      const posters = new THREE.InstancedMesh(posterGeo, posterMat, colSpots.length);
+      const m = new THREE.Matrix4();
+      colSpots.forEach(([x, z], i) => {
+        m.makeTranslation(x, 0, z);
+        bodies.setMatrixAt(i, m);
+        caps.setMatrixAt(i, m);
+        posters.setMatrixAt(i, m);
+      });
+      bodies.castShadow = true;
+      this.group.add(bodies, caps, posters);
+    }
+  }
+
   buildRainTrees() {
     const { rng } = this;
     const spots = [];
@@ -1268,7 +1392,8 @@ export class WorldBuilder {
     const cabin = new THREE.InstancedMesh(cabinGeo, cabinMat, spots.length);
     const wheels = new THREE.InstancedMesh(wheelGeo, wheelMat, spots.length);
 
-    const palette = [0xbfc4cc, 0x8b9099, 0x4a4f58, 0x7a3a36, 0x36506e, 0xd8d4c8, 0x2e3a30]
+    const palette = (this.theme.carPalette ||
+      [0xbfc4cc, 0x8b9099, 0x4a4f58, 0x7a3a36, 0x36506e, 0xd8d4c8, 0x2e3a30])
       .map((c) => new THREE.Color(c));
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();

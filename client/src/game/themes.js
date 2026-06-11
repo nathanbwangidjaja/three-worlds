@@ -109,17 +109,23 @@ export const THEMES = {
     water: 0x121b30,
     green: 0x1f3326,
     treeFoliage: [0x1e3a28, 0x24452e, 0x1a3324],
-    treeKind: "manicured",
+    treeKind: "deciduous", // round pollarded crowns, like the Champ's allées
+    alleeTrees: true,      // regular tree rows along the park paths
+    streetTrees: true,     // plane-tree rows along the quais and avenues
+    parkFurniture: true,   // green benches + Morris columns
+    crosswalks: true,
+    carPalette: [0xe8e8e8, 0xd0d2d4, 0x9aa0a8, 0x2a3138, 0x4a5668, 0xc8c4b8],
     buildingPalette: [0x4a4458, 0x55506a, 0x484052, 0x5d5468, 0x3f3a4e],
     roofTint: 0.6,
     night: true,
     stars: true,
     streetlights: true,
+    // moonlit Haussmann limestone: warm cream-grays, not purple
     facadeStyles: [
-      { type: "facade", weight: 5, opts: { base: "#6a6276", stone: true, balconies: true, shutters: true, lit: 0.42, glassTop: "#3a3f56", glassBottom: "#23283c", frame: "rgba(16,16,22,0.95)", seed: 7 } },
-      { type: "facade", weight: 4, opts: { base: "#5d566c", stone: true, balconies: true, lit: 0.34, glassTop: "#363b50", glassBottom: "#202538", frame: "rgba(14,14,20,0.95)", seed: 19 } },
-      { type: "facade", weight: 3, opts: { base: "#797088", stone: true, balconies: true, lit: 0.5, glassTop: "#3e4458", glassBottom: "#262b40", frame: "rgba(18,18,24,0.95)", seed: 29 } },
-      { type: "facade", weight: 2, opts: { base: "#544e62", stone: true, shutters: true, lit: 0.28, glassTop: "#343950", glassBottom: "#1e2336", frame: "rgba(12,12,18,0.95)", seed: 31 } },
+      { type: "facade", weight: 5, opts: { base: "#8c8472", stone: true, balconies: true, shutters: true, lit: 0.42, glassTop: "#3a3f56", glassBottom: "#23283c", frame: "rgba(22,22,26,0.95)", seed: 7 } },
+      { type: "facade", weight: 4, opts: { base: "#7e7666", stone: true, balconies: true, lit: 0.34, glassTop: "#363b50", glassBottom: "#202538", frame: "rgba(20,20,24,0.95)", seed: 19 } },
+      { type: "facade", weight: 3, opts: { base: "#968c78", stone: true, balconies: true, lit: 0.5, glassTop: "#3e4458", glassBottom: "#262b40", frame: "rgba(24,24,28,0.95)", seed: 29 } },
+      { type: "facade", weight: 2, opts: { base: "#6e6758", stone: true, shutters: true, lit: 0.28, glassTop: "#343950", glassBottom: "#1e2336", frame: "rgba(18,18,22,0.95)", seed: 31 } },
     ],
     roof: { type: "flat", base: "#3c4254" }, // zinc
     mansard: { color: "#2e3446", rise: 2.8, inset: 1.8, minH: 11 },

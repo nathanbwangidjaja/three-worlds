@@ -534,6 +534,46 @@ export function roofTexture({ tile = "#a8503a", dark = "#7e3826", rows = 16, see
   return finish(c);
 }
 
+// Parisian zinc mansard band with dormer windows (some warmly lit)
+export function mansardTexture({ base = "#2e3446", lit = 0.4, seed = 61 } = {}) {
+  const W = 256, H = 128;
+  const [c, ctx] = canvas(W, H);
+  const [ec, ectx] = canvas(W, H);
+  const rnd = rngFactory(seed);
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, W, H);
+  ectx.fillStyle = "#000";
+  ectx.fillRect(0, 0, W, H);
+  // zinc seams
+  ctx.strokeStyle = "rgba(255,255,255,0.07)";
+  ctx.lineWidth = 2;
+  for (let x = 0; x < W; x += 26) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  // two dormers per tile
+  for (const x0 of [W * 0.18, W * 0.68]) {
+    // dormer housing
+    ctx.fillStyle = "rgba(255,255,255,0.10)";
+    ctx.fillRect(x0 - 5, H * 0.22, 46, H * 0.6);
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    ctx.fillRect(x0 - 5, H * 0.18, 46, 6);
+    const isLit = rnd() < lit;
+    const g = ctx.createLinearGradient(0, H * 0.3, 0, H * 0.74);
+    if (isLit) { g.addColorStop(0, "#ffe2a8"); g.addColorStop(1, "#d89a52"); }
+    else { g.addColorStop(0, "#3a4156"); g.addColorStop(1, "#222a3c"); }
+    ctx.fillStyle = g;
+    ctx.fillRect(x0 + 2, H * 0.3, 32, H * 0.44);
+    ctx.strokeStyle = "rgba(20,20,26,0.9)";
+    ctx.lineWidth = 2.5;
+    ctx.strokeRect(x0 + 2, H * 0.3, 32, H * 0.44);
+    if (isLit) {
+      ectx.fillStyle = "#e8b870";
+      ectx.fillRect(x0 + 3, H * 0.31, 30, H * 0.42);
+    }
+  }
+  return { map: finish(c), emissive: finish(ec) };
+}
+
 export function flatRoofTexture({ base = "#6e6862", seed = 11 } = {}) {
   const S = 256;
   const [c, ctx] = canvas(S, S);
