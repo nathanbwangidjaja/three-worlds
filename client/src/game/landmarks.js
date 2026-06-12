@@ -694,3 +694,248 @@ export function buildLiftKiosk(x, z, ry = 0) {
   const tick = (t) => { lamp.intensity = 5.4 + Math.sin(t * 3.4) * 0.8; };
   return { group, tick };
 }
+
+// ------------------------------------------------- SPH Lippo Village
+// Hand-built from the campus photos: brick clock tower, white-lattice
+// pavilion, circular front lawn with curved steps, navy column banners.
+export function buildSphFront(x, z, ry = 0) {
+  const group = new THREE.Group();
+  group.position.set(x, 0, z);
+  group.rotation.y = ry;
+  const brick = new THREE.MeshLambertMaterial({ color: 0x9a4a34 });
+  const white = new THREE.MeshLambertMaterial({ color: 0xf0ece2 });
+  const terra = new THREE.MeshLambertMaterial({ color: 0x8a3c2c });
+  const hedge = new THREE.MeshLambertMaterial({ color: 0x3a6234 });
+
+  // circular lawn + curved steps
+  const lawn = new THREE.Mesh(new THREE.CylinderGeometry(11, 11, 0.16, 28), new THREE.MeshLambertMaterial({ color: 0x4a7a3c }));
+  lawn.position.set(0, 0.08, 8);
+  group.add(lawn);
+  for (let s = 0; s < 3; s++) {
+    const step = new THREE.Mesh(new THREE.CylinderGeometry(12.5 + s, 12.5 + s, 0.1, 28, 1, false, Math.PI * 0.8, Math.PI * 0.55), new THREE.MeshLambertMaterial({ color: 0x8a857a }));
+    step.position.set(0, 0.05 + (2 - s) * 0.1, 8);
+    group.add(step);
+  }
+
+  // the clock tower
+  const tower = new THREE.Group();
+  const shaft = new THREE.Mesh(new THREE.BoxGeometry(3.4, 13, 3.4), brick);
+  shaft.position.y = 6.5;
+  shaft.castShadow = true;
+  tower.add(shaft);
+  const beltC = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.5, 3.8), white);
+  beltC.position.y = 10.6;
+  tower.add(beltC);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(4.0, 2.6, 4.0), white);
+  head.position.y = 12.6;
+  tower.add(head);
+  // clock faces
+  const cv = document.createElement("canvas");
+  cv.width = cv.height = 128;
+  const ctx = cv.getContext("2d");
+  ctx.fillStyle = "#f8f6ee"; ctx.fillRect(0, 0, 128, 128);
+  ctx.strokeStyle = "#2a2620"; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.arc(64, 64, 52, 0, Math.PI * 2); ctx.stroke();
+  ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.moveTo(64, 64); ctx.lineTo(64, 26); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(64, 64); ctx.lineTo(92, 76); ctx.stroke();
+  const clockTex = new THREE.CanvasTexture(cv);
+  for (let f = 0; f < 4; f++) {
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 1.9), new THREE.MeshLambertMaterial({ map: clockTex }));
+    face.position.set(f === 0 ? 0 : f === 2 ? 0 : f === 1 ? 2.01 : -2.01, 12.6, f === 0 ? 2.01 : f === 2 ? -2.01 : 0);
+    face.rotation.y = f === 0 ? 0 : f === 1 ? Math.PI / 2 : f === 2 ? Math.PI : -Math.PI / 2;
+    tower.add(face);
+  }
+  const cap = new THREE.Mesh(new THREE.ConeGeometry(3.2, 2.4, 4), terra);
+  cap.position.y = 15.2;
+  cap.rotation.y = Math.PI / 4;
+  tower.add(cap);
+  const finial = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.4, 5), white);
+  finial.position.y = 16.8;
+  tower.add(finial);
+  tower.position.set(6.5, 0, 22);
+  group.add(tower);
+
+  // white-lattice pavilion with pyramid roof
+  const pav = new THREE.Group();
+  const latTex = (() => {
+    const c2 = document.createElement("canvas");
+    c2.width = c2.height = 64;
+    const x2 = c2.getContext("2d");
+    x2.fillStyle = "rgba(0,0,0,0)"; x2.clearRect(0, 0, 64, 64);
+    x2.strokeStyle = "#f2efe6"; x2.lineWidth = 5;
+    for (let i = -64; i < 128; i += 16) {
+      x2.beginPath(); x2.moveTo(i, 0); x2.lineTo(i + 64, 64); x2.stroke();
+      x2.beginPath(); x2.moveTo(i + 64, 0); x2.lineTo(i, 64); x2.stroke();
+    }
+    const t = new THREE.CanvasTexture(c2);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(3, 1.6);
+    return t;
+  })();
+  for (let i = 0; i < 4; i++) {
+    const wall = new THREE.Mesh(
+      new THREE.PlaneGeometry(7, 4.2),
+      new THREE.MeshLambertMaterial({ map: latTex, transparent: true, side: THREE.DoubleSide, alphaTest: 0.3 })
+    );
+    wall.position.y = 2.6;
+    if (i % 2 === 0) { wall.position.z = (i === 0 ? 3.5 : -3.5); }
+    else { wall.position.x = (i === 1 ? 3.5 : -3.5); wall.rotation.y = Math.PI / 2; }
+    pav.add(wall);
+  }
+  for (const [px, pz] of [[-3.5, -3.5], [3.5, -3.5], [-3.5, 3.5], [3.5, 3.5]]) {
+    const col = new THREE.Mesh(new THREE.BoxGeometry(0.5, 4.8, 0.5), brick);
+    col.position.set(px, 2.4, pz);
+    pav.add(col);
+  }
+  const pavRoof = new THREE.Mesh(new THREE.ConeGeometry(6, 2.8, 4), terra);
+  pavRoof.position.y = 6.1;
+  pavRoof.rotation.y = Math.PI / 4;
+  pavRoof.castShadow = true;
+  pav.add(pavRoof);
+  pav.position.set(-3, 0, 24);
+  group.add(pav);
+
+  // navy "years of excellence" banners on brick columns
+  const bcv = document.createElement("canvas");
+  bcv.width = 48; bcv.height = 192;
+  const bctx = bcv.getContext("2d");
+  bctx.fillStyle = "#16305e"; bctx.fillRect(0, 0, 48, 192);
+  bctx.fillStyle = "#e8d8a0"; bctx.font = "bold 17px Georgia";
+  bctx.save(); bctx.translate(24, 96); bctx.rotate(-Math.PI / 2);
+  bctx.textAlign = "center"; bctx.fillText("EXCELLENCE", 0, 6); bctx.restore();
+  const bTex = new THREE.CanvasTexture(bcv);
+  for (const bx of [-9, -4.5, 4.5, 9]) {
+    const col = new THREE.Mesh(new THREE.BoxGeometry(0.7, 6.2, 0.7), brick);
+    col.position.set(bx, 3.1, 17.5);
+    group.add(col);
+    const ban = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 3.4), new THREE.MeshLambertMaterial({ map: bTex, side: THREE.DoubleSide }));
+    ban.position.set(bx, 3.4, 17.0);
+    ban.rotation.y = Math.PI; // face the lawn — the backside reads mirrored
+    group.add(ban);
+  }
+  // hedge balls around the lawn
+  for (let a = 0; a < Math.PI * 2; a += Math.PI / 6) {
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.65, 8, 6), hedge);
+    ball.position.set(Math.cos(a) * 12.6, 0.5, 8 + Math.sin(a) * 12.6);
+    group.add(ball);
+  }
+  return { group };
+}
+
+// pool, tennis courts, sports field, playground gazebo — from the aerial
+export function buildSphGrounds() {
+  const group = new THREE.Group();
+  const line = new THREE.MeshLambertMaterial({ color: 0xf2f2ea });
+
+  const courtAt = (x, z, w, d, color, ry = 0) => {
+    const g = new THREE.Group();
+    const slab = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshLambertMaterial({ color }));
+    slab.rotation.x = -Math.PI / 2;
+    slab.position.y = 0.06;
+    g.add(slab);
+    const border = new THREE.Mesh(new THREE.PlaneGeometry(w - 1.4, d - 1.4));
+    border.material = new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide });
+    g.position.set(x, 0, z);
+    g.rotation.y = ry;
+    group.add(g);
+    return g;
+  };
+
+  // lap pool with lanes + deck
+  const pool = new THREE.Group();
+  const deck = new THREE.Mesh(new THREE.PlaneGeometry(34, 20), new THREE.MeshLambertMaterial({ color: 0xcabfa8 }));
+  deck.rotation.x = -Math.PI / 2;
+  deck.position.y = 0.05;
+  pool.add(deck);
+  const cvp = document.createElement("canvas");
+  cvp.width = 256; cvp.height = 128;
+  const pctx = cvp.getContext("2d");
+  pctx.fillStyle = "#2f86b8"; pctx.fillRect(0, 0, 256, 128);
+  pctx.strokeStyle = "#cfe8f4"; pctx.lineWidth = 3;
+  for (let l = 1; l < 8; l++) { pctx.beginPath(); pctx.moveTo(0, l * 16); pctx.lineTo(256, l * 16); pctx.stroke(); }
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(25, 12), new THREE.MeshLambertMaterial({ map: new THREE.CanvasTexture(cvp) }));
+  water.rotation.x = -Math.PI / 2;
+  water.position.y = 0.09;
+  pool.add(water);
+  pool.position.set(140, 0, 38);
+  group.add(pool);
+
+  // two tennis courts + one basketball court
+  const tennis1 = courtAt(96, 24, 12, 24, 0x3a7a52);
+  const inner1 = new THREE.Mesh(new THREE.PlaneGeometry(9, 19), new THREE.MeshLambertMaterial({ color: 0x2f6ea8 }));
+  inner1.rotation.x = -Math.PI / 2; inner1.position.y = 0.08;
+  tennis1.add(inner1);
+  const tennis2 = courtAt(112, 24, 12, 24, 0x3a7a52);
+  const inner2 = inner1.clone();
+  tennis2.add(inner2);
+  for (const t of [tennis1, tennis2]) {
+    const net = new THREE.Mesh(new THREE.PlaneGeometry(10, 0.85), new THREE.MeshLambertMaterial({ color: 0x222428, transparent: true, opacity: 0.6, side: THREE.DoubleSide }));
+    net.position.y = 0.55;
+    t.add(net);
+  }
+  courtAt(96, -6, 16, 26, 0x9a5e46); // basketball: clay-red slab
+
+  // sports field with goals
+  const field = new THREE.Group();
+  const turf = new THREE.Mesh(new THREE.PlaneGeometry(85, 55), new THREE.MeshLambertMaterial({ color: 0x3f7036 }));
+  turf.rotation.x = -Math.PI / 2;
+  turf.position.y = 0.04;
+  field.add(turf);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(8, 8.5, 24), line);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.07;
+  field.add(ring);
+  for (const side of [-1, 1]) {
+    const goal = new THREE.Group();
+    const barMat = new THREE.MeshLambertMaterial({ color: 0xf2f2ea });
+    const cross = new THREE.Mesh(new THREE.BoxGeometry(7.3, 0.12, 0.12), barMat);
+    cross.position.y = 2.4;
+    goal.add(cross);
+    for (const px of [-3.66, 3.66]) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.4, 0.12), barMat);
+      post.position.set(px, 1.2, 0);
+      goal.add(post);
+    }
+    goal.position.set(side * 39, 0, 0);
+    goal.rotation.y = Math.PI / 2;
+    field.add(goal);
+    const lineMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 55), line);
+    lineMesh.rotation.x = -Math.PI / 2;
+    lineMesh.position.set(side * 38, 0.07, 0);
+    field.add(lineMesh);
+  }
+  field.position.set(215, 0, -20);
+  group.add(field);
+
+  // playground + wooden gazebo by the pond
+  const gz = new THREE.Group();
+  const wood = new THREE.MeshLambertMaterial({ color: 0x7a5a38 });
+  for (const [gx, gzp] of [[-1.4, -1.4], [1.4, -1.4], [-1.4, 1.4], [1.4, 1.4]]) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.18, 2.4, 0.18), wood);
+    post.position.set(gx, 1.2, gzp);
+    gz.add(post);
+  }
+  const groof = new THREE.Mesh(new THREE.ConeGeometry(2.6, 1.3, 4), new THREE.MeshLambertMaterial({ color: 0x8a3c2c }));
+  groof.position.y = 3.0;
+  groof.rotation.y = Math.PI / 4;
+  gz.add(groof);
+  const bench = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.4, 2.2), wood);
+  bench.position.y = 0.45;
+  gz.add(bench);
+  gz.position.set(30, 0, 52);
+  group.add(gz);
+  // blue playground bits
+  for (const [px, pz, h] of [[22, 48, 1.4], [24.5, 51, 1.0], [19.5, 51.5, 1.8]]) {
+    const play = new THREE.Mesh(new THREE.BoxGeometry(1.1, h, 1.1), new THREE.MeshLambertMaterial({ color: 0x2f6ea8 }));
+    play.position.set(px, h / 2, pz);
+    group.add(play);
+  }
+  // pond
+  const pond = new THREE.Mesh(new THREE.CircleGeometry(9, 20), new THREE.MeshLambertMaterial({ color: 0x35606e }));
+  pond.rotation.x = -Math.PI / 2;
+  pond.position.set(36, 0.06, 32);
+  group.add(pond);
+
+  return { group };
+}

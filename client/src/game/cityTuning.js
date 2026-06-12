@@ -131,9 +131,9 @@ export const STYLE_DEFS = {
     opts: { band: "#f0efe8", bandDark: "rgba(90,110,120,0.25)", glassTop: "#7ab8c8", glassBottom: "#2c5662", bandRatio: 0.5, seed: 341 },
     storefront: false,
   },
-  sphCampus: {       // Sekolah Pelita Harapan: warm cream halls, red accents
-    factory: "facade",
-    opts: { base: "#e2cfae", stone: true, frame: "rgba(122,48,38,0.9)", glassTop: "#b8ccd4", glassBottom: "#4c646e", noise: 0.04, seed: 347 },
+  sphCampus: {       // SPH Lippo Village: red-brick colonnades, white fascia bands
+    factory: "ribbon",
+    opts: { band: "#9a4a34", glassTop: "#e8e4da", glassBottom: "#7a4534", bandRatio: 0.62, seed: 347 },
     storefront: false,
   },
   uphGlass: {        // Universitas Pelita Harapan: dark glass towers

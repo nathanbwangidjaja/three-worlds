@@ -59,7 +59,8 @@ export const CAMPUSES = {
     sub: "Sekolah Pelita Harapan · est. 1993",
     W: 46, D: 30,
     floors: ["Lobby · Chapel · Cafeteria", "Classrooms · Library", "Eagles Gym"],
-    wall: 0xeef0ee, accent: 0x2a5d8a, floor: 0xd8d4c8,
+    // from the campus photos: warm white walls, tan vinyl floors, navy accents
+    wall: 0xf2efe8, accent: 0x16305e, floor: 0xb8854e,
   },
   uph: {
     name: "UPH Karawaci",
@@ -232,19 +233,57 @@ export class CampusWorld {
     cross.position.set(-W / 2 + 9, 1.9, -D / 2 + 0.4);
     this.floorGroup0.add(cross);
     this._box(0, 0.7, 1.15, 0.55, -W / 2 + 6, 0.57, -7.6, 0x6e5234);     // lectern
-    // cafeteria (east wing): round-ish tables
-    for (const [tx, tz] of [[9, 2], [14, 5], [9, 8], [15, 0], [14, 10]]) {
-      const t = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.0, 0.08, 12), lambert(cream));
-      t.position.set(tx, 0.78, tz);
-      this.floorGroup0.add(t);
-      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.16, 0.78, 8), lambert(0x6a6a6e));
-      leg.position.set(tx, 0.39, tz);
-      this.floorGroup0.add(leg);
-      this.colliders[0].push({ x: tx, z: tz, hw: 1.1, hd: 1.1 });
-      this._chairRow(0, 2, tx - 0.8, tz - 1.3, 1.6, navy);
-      this._chairRow(0, 2, tx - 0.8, tz + 1.3, 1.6, navy, Math.PI);
+    // cafeteria (east wing) — the real one: checkerboard floor, wood-slat
+    // ceiling, long white tables with benches, a blue booth bank, servery
+    const checkCv = document.createElement("canvas");
+    checkCv.width = checkCv.height = 128;
+    const cctx = checkCv.getContext("2d");
+    for (let cx2 = 0; cx2 < 4; cx2++) {
+      for (let cz2 = 0; cz2 < 4; cz2++) {
+        cctx.fillStyle = (cx2 + cz2) % 2 ? "#b9b4a8" : "#edeae2";
+        cctx.fillRect(cx2 * 32, cz2 * 32, 32, 32);
+      }
     }
-    this._banner(0, "KANTIN · CAFETERIA", "#2a5d8a", "#f2efe2", 12, 2.7, -D / 2 + 0.2, 6, 0.6);
+    const checkTex = new THREE.CanvasTexture(checkCv);
+    checkTex.wrapS = checkTex.wrapT = THREE.RepeatWrapping;
+    checkTex.repeat.set(5, 4);
+    const cafFloor = new THREE.Mesh(new THREE.PlaneGeometry(15, 13), new THREE.MeshLambertMaterial({ map: checkTex }));
+    cafFloor.rotation.x = -Math.PI / 2;
+    cafFloor.position.set(12.5, 0.02, 4);
+    this.floorGroup0.add(cafFloor);
+    for (let sx = 6; sx <= 19; sx += 1.1) { // wood-slat baffle ceiling
+      const slat = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.34, 12.5), lambert(0x9a7a4e));
+      slat.position.set(sx, FLOOR_H - 0.55, 4);
+      this.floorGroup0.add(slat);
+    }
+    for (const [tx, tz] of [[9, 1.5], [9, 5.5], [14.5, 1.5], [14.5, 5.5]]) {
+      const table = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.08, 0.95), lambert(0xf4f2ec));
+      table.position.set(tx, 0.78, tz);
+      this.floorGroup0.add(table);
+      for (const lx of [-1.8, 1.8]) {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.78, 0.85), lambert(0x26282c));
+        leg.position.set(tx + lx, 0.39, tz);
+        this.floorGroup0.add(leg);
+      }
+      this.colliders[0].push({ x: tx, z: tz, hw: 2.2, hd: 0.7 });
+      for (const bz of [-0.95, 0.95]) {
+        const benchM = new THREE.Mesh(new THREE.BoxGeometry(3.9, 0.07, 0.32), lambert(0xa8804e));
+        benchM.position.set(tx, 0.46, tz + bz);
+        this.floorGroup0.add(benchM);
+      }
+    }
+    // blue booth bank along the east wall
+    const booth = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.5, 9), lambert(0x4a7ab0));
+    booth.position.set(W / 2 - 1.2, 0.55, 4);
+    this.floorGroup0.add(booth);
+    const boothBack = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.15, 9), lambert(0x4a7ab0));
+    boothBack.position.set(W / 2 - 0.7, 0.85, 4);
+    this.floorGroup0.add(boothBack);
+    this.colliders[0].push({ x: W / 2 - 1, z: 4, hw: 0.9, hd: 4.6 });
+    // servery counter behind a planter hedge
+    this._box(0, 6.5, 1.0, 1.1, 12.5, 0.5, 10.5, 0xe8e5dc);
+    this._box(0, 6.5, 0.45, 0.5, 12.5, 0.22, 9.6, 0x3a6234, false);
+    this._banner(0, "KANTIN · CAFETERIA", "#16305e", "#f2efe2", 12, 2.7, -D / 2 + 0.2, 6, 0.6);
     // lockers along the north corridor
     for (let lx = -6; lx <= 6; lx += 1.0) {
       this._box(0, 0.9, 1.8, 0.45, lx, 0.9, -D / 2 + 1.0, lx % 2 ? 0xd87c28 : 0xc06820, false);
@@ -262,6 +301,12 @@ export class CampusWorld {
       wb.position.set(cx, 1.8, -D / 2 + 0.22);
       this.floorGroup1.add(wb);
       this._box(1, 1.5, 0.78, 0.7, cx - 2.6, 0.39, -D / 2 + 2.4, 0x8a6844); // teacher desk
+      this._box(1, 0.45, 0.32, 0.04, cx - 2.6, 0.95, -D / 2 + 2.4, 0x222428, false); // monitor
+      const proj = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.18, 0.35), lambert(0xdedbd2));
+      proj.position.set(cx, FLOOR_H - 0.6, -D / 2 + 3.4); // ceiling projector
+      this.floorGroup1.add(proj);
+      // brick sill band under the corridor windows, like the photos
+      this._box(1, 8.6, 0.85, 0.12, cx, 0.42, -D / 2 + 5.45, 0x9a4a34, false);
       for (let r = 0; r < 2; r++) {
         for (let c = 0; c < 3; c++) {
           this._box(1, 0.95, 0.72, 0.6, cx - 1.6 + c * 1.6, 0.36, -D / 2 + 4.2 + r * 1.7, 0xb9956a, false);

@@ -7,7 +7,7 @@ import { Controls } from "./Controls.js";
 import { Effects } from "./Effects.js";
 import {
   buildEiffelTower, buildTowerSparkles, buildHomeMarker, buildBench, buildPicnic,
-  buildGatehouse, buildBeacon, buildLiftKiosk,
+  buildGatehouse, buildBeacon, buildLiftKiosk, buildSphFront, buildSphGrounds,
 } from "./landmarks.js";
 import { makeDriveCar, modelParts } from "./cars.js";
 import { RealWorld, PHOTOREAL_AVAILABLE, CITY_COORDS } from "./RealWorld.js";
@@ -509,6 +509,14 @@ export class Game {
             onInteract: () => this.enterCampus(ck),
           });
         }
+        // the real SPH campus: clock tower, lattice pavilion, lawn, pool,
+        // tennis courts, field, playground — placed from the satellite
+        addExtra(buildSphFront(740, 1524, 0));
+        this.world.addCollider?.(rectPoly(746.5, 1546, 2.2, 2.2, 0), 16); // clock tower
+        this.world.addCollider?.(rectPoly(737, 1548, 3.8, 3.8, 0), 6);    // pavilion
+        const sphGrounds = buildSphGrounds();
+        sphGrounds.group.position.set(676, 0, 1620);
+        addExtra(sphGrounds);
         [hx, hz] = this.world.findClearSpot(2, 44, 4);
       } else {
         [hx, hz] = this.world.findClearSpot(0, 0, 4);
