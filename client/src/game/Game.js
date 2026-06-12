@@ -277,7 +277,7 @@ export class Game {
   // -------------------------------------------------------------- worlds
   async loadData(key) {
     if (!this.dataCache[key]) {
-      const res = await fetch(`/data/${key}.json`);
+      const res = await fetch(`/data/${key}.json`, { cache: "no-cache" }); // revalidate — city bakes change
       if (!res.ok) throw new Error(`failed to load map data for ${key}`);
       this.dataCache[key] = await res.json();
     }
