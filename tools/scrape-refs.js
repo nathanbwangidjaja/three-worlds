@@ -23,6 +23,7 @@ const KEY = env.match(/VITE_GOOGLE_MAPS_API_KEY\s*=\s*(\S+)/)?.[1];
 if (!KEY) { console.error("no VITE_GOOGLE_MAPS_API_KEY in client/.env"); process.exit(1); }
 
 const CITIES = {
+  serpong: { lat: -6.2675297, lon: 106.6199815 },
   boston: { lat: 42.3633093, lon: -71.0880085 },
   tangerang: { lat: -6.2263205, lon: 106.5995936 },
   paris: { lat: 48.8583701, lon: 2.2944813 },

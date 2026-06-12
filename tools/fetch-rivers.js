@@ -11,6 +11,7 @@ const DATA_DIR = path.join(__dirname, "..", "client", "public", "data");
 const CITIES = {
   boston: { lat: 42.3633093, lon: -71.0880085, radius: 700, defaultWidth: { river: 90, canal: 18 } },
   tangerang: { lat: -6.2263205, lon: 106.5995936, radius: 2400, defaultWidth: { river: 30, canal: 10 } },
+  serpong: { lat: -6.2675297, lon: 106.6199815, radius: 900, defaultWidth: { river: 20, canal: 8 } },
   paris: { lat: 48.8583701, lon: 2.2944813, radius: 1800, defaultWidth: { river: 165, canal: 16 } },
 };
 

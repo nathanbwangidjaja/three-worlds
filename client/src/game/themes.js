@@ -99,6 +99,52 @@ export const THEMES = {
     cars: true,
   },
 
+  serpong: {
+    title: "Gading Serpong",
+    subtitle: "her café · the new chapter ☕",
+    sky: { top: 0x4a8fd4, bottom: 0xcfe4f0 },     // bright tropical noon
+    fog: { color: 0xd8e6ee, near: 260, far: 1000 },
+    sun: { color: 0xfff2dc, intensity: 2.6, position: [220, 320, -160] },
+    ambient: { color: 0xeaf0f4, intensity: 1.0 },
+    hemi: { sky: 0xbcd8ec, ground: 0x9a948a, intensity: 0.75 },
+    ground: 0x9aa284,
+    road: 0x686460,
+    path: 0xb8b2a4,
+    water: 0x4a7a8a,
+    green: 0x6a9448,
+    treeFoliage: [0x3e7d3a, 0x4f9143, 0x5a9e4a, 0x6aae54],
+    treeKind: "palm",
+    buildingPalette: [0xe8e6e0, 0xd8d6d0, 0xc8c6c0, 0xb8b6b0, 0xe2ded4],
+    roofTint: 0.4,
+    roofColor: 0x4a4e54, // flat dark ruko roofs
+    night: false,
+    streetlights: true,
+    streetLife: { scooters: true, billboards: true, bollards: true, peds: 22, traffic: 9 },
+    driveLeft: true,
+    facadeStyles: [
+      // the CARS LAND block: modern charcoal ruko, full-height glass grids
+      { type: "panel", weight: 5, opts: { panel: "#d8d6d0", pier: "#3a3e44", spandrel: "#26282c", glassTop: "#9ab4c4", glassBottom: "#3a4a54", pierWidth: 0.3, seed: 411 } },
+      // older cream rukos with shop bands
+      { type: "facade", weight: 3, opts: { base: "#e2d8c4", glassTop: "#b8c8d0", glassBottom: "#4e5e66", seed: 415 } },
+      { type: "facade", weight: 2, opts: { base: "#d8d2c8", glassTop: "#c0ccd2", glassBottom: "#54626a", seed: 419 } },
+      { type: "house", weight: 1, opts: { base: "#efe6d2", trim: "#b8a888", seed: 5 } },
+    ],
+    roof: { type: "flat" },
+    fillRukos: true, // CARS LAND rows are newer than OSM — synthesize them
+    crosswalks: true,
+    sidewalk: "#b6b0a2", // fresh concrete pavers
+    storefront: {
+      wall: "#cfccc4", night: false, bandH: 3.4,
+      signColors: ["#c8332a", "#1f5a8c", "#2a8c5a", "#8a3a8c", "#c87f1d"],
+      awningColors: ["#c25a32", "#2e4a5e", "#3e7048", "#a83a4a"],
+      chance: { retail: 1, generic: 0.35, house: 0.05 },
+    },
+    clouds: { count: 18, color: 0xffffff, opacity: 0.8 },
+    sunSprite: { color: "rgba(255,244,220,0.9)", size: 480 },
+    cars: true,
+    carPalette: [0xe8e8e6, 0x16181b, 0x8b9099, 0xd8d4c8, 0xe8c12a], // MPVs + the yellow taxis
+  },
+
   paris: {
     title: "Paris",
     subtitle: "where we meet · midnight by the tower",
@@ -155,6 +201,11 @@ export const DESTINATIONS = {
   tangerang: [
     { to: "boston", label: "🍂 Fly to him — Boston" },
     { to: "paris", label: "🗼 Meet in Paris" },
+    { to: "serpong", label: "☕ Drive to her café — Gading Serpong" },
+  ],
+  serpong: [
+    { to: "tangerang", label: "🏝 Drive home — Lippo Village" },
+    { to: "boston", label: "🍂 Fly to him — Boston" },
   ],
   paris: [
     { to: "boston", label: "🍂 Back to Boston" },

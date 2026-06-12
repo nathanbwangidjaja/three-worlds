@@ -321,7 +321,7 @@ export class Game {
 
     this.worldKey = key;
     let data = null;
-    if (USE_PHOTOREAL && PHOTOREAL_AVAILABLE && CITY_COORDS[key].photoreal) {
+    if (USE_PHOTOREAL && PHOTOREAL_AVAILABLE && CITY_COORDS[key]?.photoreal) {
       // real Google photogrammetry, with the stylized world as fallback
       try {
         this.world = new RealWorld(this.scene, theme, { key, ...CITY_COORDS[key] }, this.camera, this.renderer);
@@ -509,6 +509,15 @@ export class Game {
             onInteract: () => this.enterCampus(ck),
           });
         }
+        // the road out to Gading Serpong — drive southeast to her café
+        const [sgx, sgz] = this.world.findClearSpot(1010, 2030, 4);
+        addExtra(buildBeacon(sgx, sgz, "☕", 0xffd27a, 34));
+        this.interactables.push({
+          x: sgx, z: sgz, range: 8,
+          prompt: "press E · drive on to Gading Serpong · her café ☕",
+          onInteract: () => this.travel("serpong"),
+        });
+
         // the real SPH campus: clock tower, lattice pavilion, lawn, pool,
         // tennis courts, field, playground — placed from the satellite
         addExtra(buildSphFront(740, 1524, 0));
@@ -528,6 +537,30 @@ export class Game {
         x: hx, z: hz, range: 4,
         prompt: "press E · 💌",
         onInteract: () => UI.showDialog(home.speaker, home.pages),
+      });
+    }
+
+    // --- Gading Serpong: the café she just bought (CARS LAND block) ---
+    if (key === "serpong") {
+      const [mx, mz] = this.world.findClearSpot(10, 14, 3);
+      this.homePos = { x: mx, z: mz };
+      addExtra(buildHomeMarker(mx, mz, "her café ☕"));
+      this.interactables.push({
+        x: mx, z: mz, range: 4,
+        prompt: "press E · 💌",
+        onInteract: () => UI.showDialog("her café ☕", [
+          "this exact corner of CARS LAND — she just signed for it 💕",
+          "one day soon: her own café, right here in Gading Serpong.",
+          "the door with the glowing sign already works — go have a coffee inside ☕",
+        ]),
+      });
+      // the road back home
+      const [ggx, ggz] = this.world.findClearSpot(-580, -560, 4);
+      addExtra(buildBeacon(ggx, ggz, "🛣️", 0xffd27a, 32));
+      this.interactables.push({
+        x: ggx, z: ggz, range: 8,
+        prompt: "press E · drive home to Lippo Village 🛣️",
+        onInteract: () => this.travel("tangerang"),
       });
     }
 

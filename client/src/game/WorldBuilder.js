@@ -205,6 +205,7 @@ export class WorldBuilder {
 
     tmark("synthLanes", () => this.synthClusterLanes());
     tmark("fillHouses", () => this.fillClusterHouses());
+    tmark("fillRukos", () => this.fillRukoRows());
 
     tmark("roads", () => this.buildRoads());
     onProgress?.(0.26, "painting the streets");
@@ -595,6 +596,83 @@ export class WorldBuilder {
       // never mutate the cached city JSON — Game reuses it across visits
       this.data = { ...data, buildings: [...data.buildings, ...newHouses] };
       this.filledHouses = newHouses.length;
+    }
+  }
+
+  // -------------------------------------------------- new-build ruko rows
+  // Gading Serpong's CARS LAND blocks are too new for OSM — the satellite
+  // shows long shophouse rows the map doesn't have. Walk the real service
+  // streets and rebuild the rows: 8m units, 3 storeys, parking apron out front.
+  fillRukoRows() {
+    if (!this.theme.fillRukos) return;
+    const { rng } = this;
+    const data = this.data;
+    const CELL = 14;
+    const occupied = new Map();
+    const keyOf = (x, z) => `${Math.floor(x / CELL)},${Math.floor(z / CELL)}`;
+    const markPoly = (pts) => {
+      const bb = polyBBox(pts);
+      for (let gx = Math.floor(bb.minX / CELL); gx <= Math.floor(bb.maxX / CELL); gx++) {
+        for (let gz = Math.floor(bb.minZ / CELL); gz <= Math.floor(bb.maxZ / CELL); gz++) {
+          occupied.set(`${gx},${gz}`, true);
+        }
+      }
+    };
+    for (const b of data.buildings) markPoly(b.p);
+    const roadGrid = ptGrid(16);
+    for (const r of data.roads) {
+      for (let i = 1; i < r.p.length; i++) {
+        const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i];
+        const len = Math.hypot(bx - ax, bz - az);
+        for (let d = 0; d < len; d += 8) {
+          const px = ax + ((bx - ax) * d) / len, pz = az + ((bz - az) * d) / len;
+          roadGrid.add(px, pz, [px, pz, r.w / 2]);
+        }
+      }
+    }
+    const nearRoad = (x, z, clearance) => {
+      for (const [rx, rz, hw] of roadGrid.near(x, z, clearance + 8)) {
+        if (Math.hypot(rx - x, rz - z) < hw + clearance) return true;
+      }
+      return false;
+    };
+
+    const newRukos = [];
+    for (const road of data.roads) {
+      if (road.t !== "road" || road.w < 4 || road.w > 6.5) continue;
+      if (Math.min(...road.p.map(([x, z]) => Math.hypot(x, z))) > 380) continue;
+      for (let i = 1; i < road.p.length && newRukos.length < 420; i++) {
+        const [ax, az] = road.p[i - 1], [bx, bz] = road.p[i];
+        const segLen = Math.hypot(bx - ax, bz - az);
+        if (segLen < 24) continue;
+        const dx = (bx - ax) / segLen, dz = (bz - az) / segLen;
+        const nx = -dz, nz = dx;
+        for (const side of [-1, 1]) {
+          const setback = road.w / 2 + 8; // front parking apron, like the photos
+          const rowH = 10.5 + rng() * 2; // one height per run — they're terraces
+          for (let d = 10; d < segLen - 10; d += 8.2) {
+            const cx = ax + dx * (d + 4) + nx * side * setback;
+            const cz = az + dz * (d + 4) + nz * side * setback;
+            if (occupied.get(keyOf(cx, cz))) continue;
+            if (nearRoad(cx, cz, 3.2)) continue;
+            const wAlong = 8, wDeep = 15;
+            const pts = [
+              [cx - dx * wAlong / 2 - nx * side * wDeep / 2, cz - dz * wAlong / 2 - nz * side * wDeep / 2],
+              [cx + dx * wAlong / 2 - nx * side * wDeep / 2, cz + dz * wAlong / 2 - nz * side * wDeep / 2],
+              [cx + dx * wAlong / 2 + nx * side * wDeep / 2, cz + dz * wAlong / 2 + nz * side * wDeep / 2],
+              [cx - dx * wAlong / 2 + nx * side * wDeep / 2, cz - dz * wAlong / 2 + nz * side * wDeep / 2],
+            ].map(([x, z]) => [Math.round(x * 10) / 10, Math.round(z * 10) / 10]);
+            newRukos.push({ p: pts, h: Math.round(rowH * 10) / 10, c: "retail" });
+          }
+        }
+      }
+      if (newRukos.length >= 420) break;
+    }
+    if (newRukos.length) {
+      // mark occupancy only after the pass — units in one run may touch
+      for (const b of newRukos) markPoly(b.p);
+      this.data = { ...data, buildings: [...data.buildings, ...newRukos] };
+      this.filledRukos = newRukos.length;
     }
   }
 

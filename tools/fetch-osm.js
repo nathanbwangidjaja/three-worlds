@@ -24,6 +24,12 @@ const CITIES = {
     lon: 106.5995936,
     radius: 2400, // all of Lippo Village out to the Jakarta–Merak toll road
   },
+  serpong: {
+    name: "Gading Serpong",
+    lat: -6.2675297,
+    lon: 106.6199815, // CARS LAND — her café block
+    radius: 900,
+  },
   paris: {
     name: "Paris",
     lat: 48.8583701,
