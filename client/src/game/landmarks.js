@@ -939,3 +939,38 @@ export function buildSphGrounds() {
 
   return { group };
 }
+
+// the big CARS LAND forecourt: open asphalt lot, painted bays, white posts
+export function buildCarPark(w = 90, d = 64) {
+  const group = new THREE.Group();
+  const lot = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshLambertMaterial({ color: 0x6e6a66 }));
+  lot.rotation.x = -Math.PI / 2;
+  lot.position.y = 0.05;
+  lot.receiveShadow = true;
+  group.add(lot);
+  const lineMat = new THREE.MeshLambertMaterial({ color: 0xd8d8d0 });
+  for (const rowZ of [-d / 4, d / 4]) {
+    for (let x = -w / 2 + 6; x < w / 2 - 4; x += 2.9) {
+      const bay = new THREE.Mesh(new THREE.PlaneGeometry(0.18, 5.2), lineMat);
+      bay.rotation.x = -Math.PI / 2;
+      bay.position.set(x, 0.07, rowZ);
+      group.add(bay);
+    }
+  }
+  // white perimeter posts with a single rail, like the Street View
+  const postMat = new THREE.MeshLambertMaterial({ color: 0xeceae2 });
+  const mkPost = (x, z) => {
+    const p = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.9, 0.16), postMat);
+    p.position.set(x, 0.45, z);
+    group.add(p);
+  };
+  for (let x = -w / 2; x <= w / 2; x += 4.5) { mkPost(x, -d / 2); mkPost(x, d / 2); }
+  for (let z = -d / 2; z <= d / 2; z += 4.5) { mkPost(-w / 2, z); mkPost(w / 2, z); }
+  for (const [rw, rx, rz, ry] of [[w, 0, -d / 2, 0], [w, 0, d / 2, 0], [d, -w / 2, 0, Math.PI / 2], [d, w / 2, 0, Math.PI / 2]]) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(rw, 0.08, 0.08), postMat);
+    rail.position.set(rx, 0.78, rz);
+    rail.rotation.y = ry;
+    group.add(rail);
+  }
+  return { group };
+}

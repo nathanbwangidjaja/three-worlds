@@ -8,6 +8,7 @@ import { Effects } from "./Effects.js";
 import {
   buildEiffelTower, buildTowerSparkles, buildHomeMarker, buildBench, buildPicnic,
   buildGatehouse, buildBeacon, buildLiftKiosk, buildSphFront, buildSphGrounds,
+  buildCarPark,
 } from "./landmarks.js";
 import { makeDriveCar, modelParts } from "./cars.js";
 import { RealWorld, PHOTOREAL_AVAILABLE, CITY_COORDS } from "./RealWorld.js";
@@ -554,6 +555,26 @@ export class Game {
           "the door with the glowing sign already works — go have a coffee inside ☕",
         ]),
       });
+      // the CARS LAND forecourt lot across the street (in the Street View:
+      // open asphalt, painted bays, white post-and-rail fence, parked MPVs)
+      const lot = buildCarPark(86, 60);
+      lot.group.position.set(-86, 0, -16);
+      addExtra(lot);
+      let li = 0;
+      for (const spot of this.world.carSpots) { // park a few of the fleet in the bays
+        if (li >= 10) break;
+        if (Math.hypot(spot.x + 86, spot.z + 16) > 220) continue;
+        const car = makeDriveCar(spot.model, spot.paint);
+        car.headlight.intensity = 0;
+        const bayX = -86 - 38 + (li % 5) * 16, bayZ = -16 + (li < 5 ? -15 : 15);
+        car.group.position.set(bayX, 0.05, bayZ);
+        car.group.rotation.y = li < 5 ? 0 : Math.PI;
+        this.scene.add(car.group);
+        this.liveCars.push(car.group);
+        this.world.addCollider?.(rectPoly(bayX, bayZ, 1.1, 2.5, car.group.rotation.y), 1.7);
+        li++;
+      }
+
       // the road back home
       const [ggx, ggz] = this.world.findClearSpot(-580, -560, 4);
       addExtra(buildBeacon(ggx, ggz, "🛣️", 0xffd27a, 32));
