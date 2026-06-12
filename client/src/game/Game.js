@@ -543,7 +543,7 @@ export class Game {
 
     // --- Gading Serpong: the café she just bought (CARS LAND block) ---
     if (key === "serpong") {
-      const [mx, mz] = this.world.findClearSpot(10, 14, 3);
+      const [mx, mz] = this.world.findClearSpot(27, -32, 3);
       this.homePos = { x: mx, z: mz };
       addExtra(buildHomeMarker(mx, mz, "her café ☕"));
       this.interactables.push({
@@ -555,23 +555,22 @@ export class Game {
           "the door with the glowing sign already works — go have a coffee inside ☕",
         ]),
       });
-      // the CARS LAND forecourt lot across the street (in the Street View:
-      // open asphalt, painted bays, white post-and-rail fence, parked MPVs)
-      const lot = buildCarPark(86, 60);
-      lot.group.position.set(-86, 0, -16);
+      // parking apron in front of her row, like the Street View: bays + MPVs
+      const lot = buildCarPark(54, 26);
+      lot.group.position.set(38, 0, -68);
+      lot.group.rotation.y = -0.14; // aligned with the tilted ruko grid
       addExtra(lot);
       let li = 0;
-      for (const spot of this.world.carSpots) { // park a few of the fleet in the bays
-        if (li >= 10) break;
-        if (Math.hypot(spot.x + 86, spot.z + 16) > 220) continue;
+      for (const spot of this.world.carSpots) {
+        if (li >= 6) break;
         const car = makeDriveCar(spot.model, spot.paint);
         car.headlight.intensity = 0;
-        const bayX = -86 - 38 + (li % 5) * 16, bayZ = -16 + (li < 5 ? -15 : 15);
+        const bayX = 38 - 18 + (li % 6) * 7.5, bayZ = -68 + (li < 6 ? -6 : 6);
         car.group.position.set(bayX, 0.05, bayZ);
-        car.group.rotation.y = li < 5 ? 0 : Math.PI;
+        car.group.rotation.y = -0.14;
         this.scene.add(car.group);
         this.liveCars.push(car.group);
-        this.world.addCollider?.(rectPoly(bayX, bayZ, 1.1, 2.5, car.group.rotation.y), 1.7);
+        this.world.addCollider?.(rectPoly(bayX, bayZ, 1.1, 2.5, -0.14), 1.7);
         li++;
       }
 
