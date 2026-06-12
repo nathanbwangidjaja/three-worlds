@@ -4,19 +4,33 @@
     {
       "name": "client",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev:client"],
+      "runtimeArgs": [
+        "run",
+        "dev:client"
+      ],
       "port": 5173
     },
     {
       "name": "server",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev:server"],
+      "runtimeArgs": [
+        "run",
+        "dev:server"
+      ],
       "port": 2567
     },
     {
       "name": "client-test",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["node_modules/vite/bin/vite.js", "client", "--port", "5273", "--strictPort"],
+      "runtimeArgs": [
+        "node_modules/vite/bin/vite.js",
+        "client",
+        "--port",
+        "5273",
+        "--strictPort",
+        "--mode",
+        "test"
+      ],
       "port": 5273
     }
   ]

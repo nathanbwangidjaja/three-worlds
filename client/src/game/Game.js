@@ -14,6 +14,9 @@ import { makeDriveCar, modelParts } from "./cars.js";
 import { RealWorld, PHOTOREAL_AVAILABLE, CITY_COORDS } from "./RealWorld.js";
 import { RestaurantWorld } from "./RestaurantWorld.js";
 import { CampusWorld, CAMPUSES } from "./CampusWorld.js";
+import { CafeWorld } from "./CafeWorld.js";
+import { Radio } from "./Radio.js";
+import { Minimap } from "./Minimap.js";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
@@ -23,6 +26,30 @@ import * as UI from "./ui.js";
 
 // Champ de Mars axis (tower → École Militaire), unit vector in world coords
 const CHAMP_AXIS = { x: 0.62, z: 0.78 };
+
+// The Tangerang and Gading Serpong maps cover the SAME real geography 5.1km
+// apart, and the real road between them exists in both bakes: Jalan Raya
+// Legok–Karawaci runs off the Tangerang map exactly where Jalan Scientia
+// Boulevard runs off the Serpong map. Drive to the end of one and you roll
+// onto the other — same car, same passengers, no teleporting.
+const SEAMS = {
+  tangerang: {
+    to: "serpong",
+    dir: [0.4413, 0.8973], cone: 0.984, extend: 280, // drive past the map edge along the corridor
+    gate: [1182.5, 2351.6], gateR: 42,               // where this world hands the wheel over
+    entryRy: -1.817,                                  // heading when you arrive here from the other side
+    label: "🛣️ Jalan Raya Legok–Karawaci · through Kelapa Dua → Gading Serpong…",
+    walkPoint: [605, 2300],
+  },
+  serpong: {
+    to: "tangerang",
+    dir: [-0.4413, -0.8973], cone: 0.984, extend: 180,
+    gate: [-388.6, -955.7], gateR: 38,
+    entryRy: -0.37,
+    label: "🛣️ Jalan Scientia Boulevard · north past Kelapa Dua → Lippo Village…",
+    walkPoint: [-358, -690],
+  },
+};
 
 // Google photogrammetry looks melted at street level — the polished stylized
 // world is the look. Flip to true if you ever want the photoreal experiment back.
@@ -89,6 +116,23 @@ export class Game {
     this.remoteCarState = null; // their latest car on/off event
     this.liveCars = [];        // every woken-up car group (cleaned on travel)
     this.carMemory = {};       // city → {spotIndex: {x,z,ry}} — cars stay where you parked them
+    this._carryCar = null;     // {model, paint, speed} — the car crossing the seam with us
+    this._autoRide = false;    // passenger riding through a seam: hop back in on arrival
+
+    // the car radio — their playlist, synced between driver and passenger
+    this.radio = new Radio();
+    this.radio.load();
+    UI.initRadio(this.radio);
+
+    // minimap + GPS to her café
+    this.minimap = new Minimap();
+    this._mmDests = [null];
+    this._mmIdx = 0;
+    document.getElementById("minimap")?.addEventListener("click", () => {
+      if (!this._mmDests.length) return;
+      this._mmIdx = (this._mmIdx + 1) % this._mmDests.length;
+      this.minimap.setDest(this._mmDests[this._mmIdx]);
+    });
 
     window.addEventListener("resize", () => {
       if (window.innerWidth < 2 || window.innerHeight < 2) return; // minimized/hidden
@@ -136,12 +180,36 @@ export class Game {
         this.remoteCarState = m.data.on ? m.data : null;
         this._syncRemoteCar(m.data);
       }
+      if (m.kind === "radio" && m.data && this.drive && m.data.w === this.worldKey) {
+        this.radio.onRemote(m.data);
+      }
+      if (m.kind === "cafe" && m.data && this.world?.isCafe) {
+        this.world.apply(m.data);
+      }
+      if (m.kind === "convoy" && m.data) {
+        // our driver just crossed into the next city — ride along
+        if (this.drive?.seat === "passenger" && m.data.from === this.worldKey) {
+          this._followConvoy(m.data.to);
+        }
+      }
       if (m.kind === "hello") {
         // partner just arrived somewhere — if we're driving, let them see it
-        if (this.drive) {
+        if (this.drive && this.drive.seat === "driver") {
+          const g = this.drive.group;
+          const s = this.drive.spot;
+          Net.sendEvent("car", {
+            i: s.index, on: true, seat: "driver", world: this.worldKey,
+            m: s.model, pt: s.paint,
+            x: +g.position.x.toFixed(2), z: +g.position.z.toFixed(2), ry: +g.rotation.y.toFixed(3),
+          });
+        } else if (this.drive) {
           Net.sendEvent("car", {
             i: this.drive.spot.index, on: true, seat: this.drive.seat, world: this.worldKey,
           });
+        }
+        if (this.world?.isCafe && m.data?.world === this.worldKey) {
+          // they walked into the café mid-shift — hand them the state
+          this.world.apply({ a: "hello" });
         }
       }
     });
@@ -188,6 +256,7 @@ export class Game {
       const key = w.split(":")[2];
       return CAMPUSES[key] ? `${CAMPUSES[key].name} 🎓` : "campus 🎓";
     }
+    if (w.startsWith("f:")) return "her café ☕";
     return THEMES[w]?.title ?? w;
   }
 
@@ -204,6 +273,8 @@ export class Game {
         return;
       }
       if (e.code === "KeyE") this._tryInteract();
+      if (e.code === "KeyR" && this.drive) this.radio.toggle();
+      if (e.code === "KeyN" && this.drive) this.radio.next();
       if (e.code === "KeyT" && this.world?.isInterior) this.world.drawTopic();
       if (e.code === "KeyM") {
         if (this.world?.isInterior) {
@@ -357,8 +428,30 @@ export class Game {
     this._setupExtras(key, data);
     this._restoreMovedCars(key);
 
-    // spawn
-    const spawn = this._spawnPoint(key);
+    // minimap: roads of this city + GPS destinations (click the map to cycle)
+    if (data) {
+      this._mmDests = this._minimapDests(key);
+      this._mmIdx = 0;
+      this.minimap.setWorld(data, theme, this._mmDests[0]);
+    } else {
+      this.minimap.hide();
+    }
+
+    // spawn — arriving through the road seam puts you at the corridor mouth.
+    // this world's own gate is the SAME spot, so it stays disarmed until
+    // you've driven clear of it (no ping-ponging between cities).
+    const seamIn = (this._carryCar || this._autoRide) && SEAMS[key];
+    if (seamIn && key === "tangerang") {
+      // arriving home by road — the GPS should point home, not back at the gate
+      this._mmIdx = 1;
+      this.minimap.setDest(this._mmDests[1]);
+    }
+    this._seamLock = seamIn
+      ? { x: SEAMS[key].gate[0], z: SEAMS[key].gate[1], r: SEAMS[key].gateR + 35 }
+      : null;
+    const spawn = seamIn
+      ? [SEAMS[key].gate[0], SEAMS[key].gate[1], SEAMS[key].entryRy + Math.PI]
+      : this._spawnPoint(key);
     this.controls.pos.set(spawn[0], 0, spawn[1]);
     this.controls.yaw = spawn[2] ?? Math.PI;
     if (this.world.isPhotoreal) {
@@ -386,6 +479,43 @@ export class Game {
     // ask the partner to repeat anything we missed (like "I'm driving")
     Net.sendEvent?.("hello", { world: key });
     if (this.remoteCarState?.on) this._syncRemoteCar(this.remoteCarState);
+
+    // we crossed the seam IN a car — roll straight onto this city's corridor
+    if (this._carryCar && SEAMS[key]) {
+      const seam = SEAMS[key];
+      const carry = this._carryCar;
+      this._carryCar = null;
+      const idx = this.world.carSpots ? this.world.carSpots.length : 0;
+      const sy = this.world.surfaceY ? this.world.surfaceY(seam.gate[0], seam.gate[1]) : 0;
+      const spot = {
+        x: seam.gate[0], z: seam.gate[1], y: sy, ry: seam.entryRy,
+        model: carry.model, paint: carry.paint, index: idx, taken: false,
+        collider: this.world.addCollider?.(
+          rectPoly(seam.gate[0], seam.gate[1], 1.1, 2.6, seam.entryRy), 1.7),
+      };
+      (this.world.carSpots ??= []).push(spot);
+      this.enterCar(spot, "driver");
+      if (this.drive) this.drive.speed = carry.speed;
+    }
+  }
+
+  // GPS destinations per city — first one is the default
+  _minimapDests(key) {
+    if (key === "tangerang") return [
+      { x: SEAMS.tangerang.gate[0], z: SEAMS.tangerang.gate[1], label: "her café ☕ · via Jl. Raya Legok" },
+      { x: this.homePos?.x ?? 2, z: this.homePos?.z ?? 44, label: "her home 🏡" },
+      null,
+    ];
+    if (key === "serpong") return [
+      { x: 20, z: -38.6, label: "her café ☕" },
+      { x: SEAMS.serpong.gate[0], z: SEAMS.serpong.gate[1], label: "Lippo Village 🛣️ · via Scientia Blvd" },
+      null,
+    ];
+    if (key === "paris" && this.towerCenter) return [
+      { x: this.towerCenter.x, z: this.towerCenter.z, label: "the tower 🗼" },
+      null,
+    ];
+    return [null];
   }
 
   _spawnPoint(key) {
@@ -510,12 +640,14 @@ export class Game {
             onInteract: () => this.enterCampus(ck),
           });
         }
-        // the road out to Gading Serpong — drive southeast to her café
-        const [sgx, sgz] = this.world.findClearSpot(1010, 2030, 4);
+        // the road out to Gading Serpong — KEEP DRIVING southeast down
+        // Jl. Raya Legok–Karawaci and you roll straight into Serpong.
+        // (the beacon is for walkers; drivers just follow the GPS)
+        const [sgx, sgz] = this.world.findClearSpot(SEAMS.tangerang.walkPoint[0], SEAMS.tangerang.walkPoint[1], 4);
         addExtra(buildBeacon(sgx, sgz, "☕", 0xffd27a, 34));
         this.interactables.push({
           x: sgx, z: sgz, range: 8,
-          prompt: "press E · drive on to Gading Serpong · her café ☕",
+          prompt: "press E · catch a ride to Gading Serpong ☕ (or keep driving the road!)",
           onInteract: () => this.travel("serpong"),
         });
 
@@ -556,16 +688,18 @@ export class Game {
         ]),
       });
       // parking apron in front of her row, like the Street View: bays + MPVs
-      const lot = buildCarPark(54, 26);
-      lot.group.position.set(38, 0, -68);
+      // (kept clear of the north-south lane at x≈45 — the rail used to
+      // cross the road there, which made no sense)
+      const lot = buildCarPark(26, 18);
+      lot.group.position.set(25, 0, -66);
       lot.group.rotation.y = -0.14; // aligned with the tilted ruko grid
       addExtra(lot);
       let li = 0;
       for (const spot of this.world.carSpots) {
-        if (li >= 6) break;
+        if (li >= 4) break;
         const car = makeDriveCar(spot.model, spot.paint);
         car.headlight.intensity = 0;
-        const bayX = 38 - 18 + (li % 6) * 7.5, bayZ = -68 + (li < 6 ? -6 : 6);
+        const bayX = 25 - 9 + li * 6, bayZ = -70 + (25 - 9 + li * 6 - 25) * -0.14;
         car.group.position.set(bayX, 0.05, bayZ);
         car.group.rotation.y = -0.14;
         this.scene.add(car.group);
@@ -574,12 +708,12 @@ export class Game {
         li++;
       }
 
-      // the road back home
-      const [ggx, ggz] = this.world.findClearSpot(-580, -560, 4);
+      // the road back home — Scientia Boulevard north, or press E to ride
+      const [ggx, ggz] = this.world.findClearSpot(SEAMS.serpong.walkPoint[0], SEAMS.serpong.walkPoint[1], 4);
       addExtra(buildBeacon(ggx, ggz, "🛣️", 0xffd27a, 32));
       this.interactables.push({
         x: ggx, z: ggz, range: 8,
-        prompt: "press E · drive home to Lippo Village 🛣️",
+        prompt: "press E · catch a ride home to Lippo Village 🛣️ (or drive the boulevard!)",
         onInteract: () => this.travel("tangerang"),
       });
     }
@@ -598,6 +732,15 @@ export class Game {
     // --- restaurant doors: every real café/restaurant is enterable ---
     if (this.world.restaurantDoors?.length) {
       for (const door of this.world.restaurantDoors) {
+        // HER café is not a restaurant — it's a shift behind the counter 💛
+        if (key === "serpong" && door.poi.n === "Her Café") {
+          this.interactables.push({
+            x: door.x, z: door.z, range: 3.2,
+            prompt: "press E · step into HER café ☕💛",
+            onInteract: () => this.enterCafe(door),
+          });
+          continue;
+        }
         this.interactables.push({
           x: door.x, z: door.z, range: 2.8,
           prompt: `press E · dine at ${door.poi.n} 🍽`,
@@ -619,7 +762,8 @@ export class Game {
         ] },
         tangerang: { name: "Maya", pages: [
           "selamat datang di Lippo Village 🩷 the white gatehouse on the avenue is Taman Beverly — her home is just inside.",
-          "any parked car can be driven: stand next to one and press E. take the Alphard, it's very Tangerang 😄 one of you drives, the other rides along.",
+          "any parked car can be driven: stand next to one and press E. take the Alphard, it's very Tangerang 😄 one of you drives, the other rides along — press R in the car for YOUR playlist 📻",
+          "want her café? just DRIVE there — follow the blue line on the minimap down Jl. Raya Legok–Karawaci and the road rolls straight into Gading Serpong ☕ no teleporting.",
           "follow a 🎓 beam to visit her schools — SPH Lippo Village is south past the golf course, UPH is east by the big towers. you can walk every floor.",
           "drive north and you'll hit the Jakarta–Merak toll road, gerbang tol and all 🛣️ — and press M any time to fly to Boston or Paris ✈️",
         ] },
@@ -740,9 +884,16 @@ export class Game {
     this.controls.dist = 10;
     if (!car.spec.openTop) this.avatar.group.visible = false;
     UI.addSystem(seat === "driver"
-      ? `🚗 ${car.spec.name} — W/S gas & brake, A/D steer, E to park`
-      : `💕 riding along in the ${car.spec.name} — E to hop out`);
-    Net.sendEvent("car", { i: spot.index, on: true, seat, world: this.worldKey });
+      ? `🚗 ${car.spec.name} — W/S gas & brake, A/D steer, E to park · R radio 📻`
+      : `💕 riding along in the ${car.spec.name} — R for the radio, E to hop out`);
+    this.radio.worldKey = this.worldKey;
+    this.radio.show(seat === "driver");
+    Net.sendEvent("car", {
+      i: spot.index, on: true, seat, world: this.worldKey,
+      m: spot.model, pt: spot.paint,
+      x: +car.group.position.x.toFixed(2), z: +car.group.position.z.toFixed(2),
+      ry: +car.group.rotation.y.toFixed(3),
+    });
   }
 
   exitCar(silent = false) {
@@ -755,6 +906,7 @@ export class Game {
     this.drive = null;
     this.avatar.group.visible = true;
     this.avatarLight.intensity = THEMES[this.worldKey]?.night ? 30 : 9;
+    this.radio.hide();
     const g = d.group;
     if (d.seat === "driver") {
       d.headlight.intensity = 0;
@@ -792,6 +944,12 @@ export class Game {
     for (const [idx, pose] of Object.entries(mem)) {
       const spot = this.world.carSpots[idx];
       if (!spot) continue;
+      if (pose === "gone") {
+        // this car was driven away down the corridor — it's in the other city now
+        this.world.takeCar(spot);
+        spot.taken = true;
+        continue;
+      }
       this.world.takeCar(spot); // hide the freshly-rebuilt parked instance
       const car = makeDriveCar(spot.model, spot.paint);
       car.headlight.intensity = 0;
@@ -812,7 +970,18 @@ export class Game {
   _syncRemoteCar(data) {
     if (!this.world || this.world.isInterior || !this.world.carSpots) return;
     if (data.on && data.seat === "driver" && data.world === this.worldKey) {
-      const spot = this.world.carSpots[data.i];
+      let spot = this.world.carSpots[data.i];
+      if (!spot && data.m) {
+        // a car they carried over the seam — it has no spot here, build one
+        const sy = this.world.surfaceY ? this.world.surfaceY(data.x ?? 0, data.z ?? 0) : 0;
+        spot = {
+          x: data.x ?? 0, z: data.z ?? 0, y: sy, ry: data.ry ?? 0,
+          model: data.m, paint: data.pt ?? 0xd8d8d8, index: data.i, taken: false,
+          collider: this.world.addCollider?.(
+            rectPoly(data.x ?? 0, data.z ?? 0, 1.1, 2.6, data.ry ?? 0), 1.7),
+        };
+        this.world.carSpots[data.i] = spot;
+      }
       if (!spot || this.remoteCar) return;
       let car = spot.parkedCar;
       spot.parkedCar = null;
@@ -827,6 +996,11 @@ export class Game {
       if (spot.collider) spot.collider.off = true;
       car.headlight.intensity = THEMES[this.worldKey]?.night ? 5 : 1.4;
       this.remoteCar = { ...car, spot };
+      // we rode the seam with them — hop straight back into the passenger seat
+      if (this._autoRide) {
+        this._autoRide = false;
+        this.enterCar(spot, "passenger");
+      }
     } else if (!data.on && data.seat !== "passenger") {
       if (this.remoteCar) {
         const car = this.remoteCar;
@@ -899,12 +1073,33 @@ export class Game {
     for (const [lx, lz] of [[hw, hl], [-hw, hl], [hw, -hl], [-hw, -hl]]) {
       if (this.world.blocked(nx + lx * cos + lz * sin, nz - lx * sin + lz * cos)) { hit = true; break; }
     }
-    if (!hit && Math.hypot(nx, nz) < this.world.data.radius + 25) {
+    // the world ends at the bake radius — except along the corridor to the
+    // next city, where the real road keeps going to the hand-over point
+    let maxR = this.world.data.radius + 25;
+    const seam = SEAMS[this.worldKey];
+    if (seam) {
+      const dn = Math.hypot(nx, nz) || 1;
+      if ((nx * seam.dir[0] + nz * seam.dir[1]) / dn > seam.cone) {
+        maxR = this.world.data.radius + seam.extend;
+      }
+    }
+    if (!hit && Math.hypot(nx, nz) < maxR) {
       p.x = nx; p.z = nz;
     } else if (hit) {
       d.speed = -d.speed * 0.25; // soft bump
     } else {
       d.speed = 0;
+    }
+
+    // rolled up to the seam gate → the next city takes over, mid-drive
+    if (this._seamLock) {
+      if (Math.hypot(p.x - this._seamLock.x, p.z - this._seamLock.z) > this._seamLock.r) {
+        this._seamLock = null; // clear of the arrival gate — it's armed again
+      }
+    } else if (seam && !this._seaming &&
+        Math.hypot(p.x - seam.gate[0], p.z - seam.gate[1]) < seam.gateR) {
+      this._seamTravel(seam);
+      return;
     }
 
     const sy = this.world.surfaceY ? this.world.surfaceY(p.x, p.z) : 0;
@@ -922,6 +1117,62 @@ export class Game {
       this.controls.yaw += dy * Math.min(1, dt * 1.7);
     }
     this._seatAvatarInCar(this.avatar, d, "driver");
+  }
+
+  // ------------------------------------------------------------ the seam
+  // Driving off the end of one city's corridor rolls you onto the other's.
+  // The car comes with you; the passenger's client follows automatically.
+  async _seamTravel(seam) {
+    if (this._seaming) return;
+    this._seaming = true;
+    const d = this.drive;
+    const carry = {
+      model: d.spot.model, paint: d.spot.paint,
+      speed: Math.max(7, Math.abs(d.speed)),
+    };
+    // the car leaves this city for good — its old spot stays empty
+    if (!this.worldKey.includes(":")) {
+      (this.carMemory[this.worldKey] ??= {})[d.spot.index] = "gone";
+    }
+    Net.sendEvent("convoy", { to: seam.to, from: this.worldKey });
+    this.drive = null; // don't park it — it's coming with us
+    // (the radio keeps playing — the song carries you across)
+    this.avatar.group.visible = true;
+    this._carryCar = carry;
+    UI.fadeIn(seam.label);
+    await new Promise((r) => setTimeout(r, 650));
+    try {
+      await this.loadWorld(seam.to);
+    } catch (err) {
+      console.error("[seam] crossing failed:", err);
+      this._carryCar = null;
+      this.radio.hide();
+      UI.fadeIn(`💔 the road back seems closed — ${String(err.message || err)}`);
+      setTimeout(() => UI.fadeOut(), 4000);
+      this._seaming = false;
+      return;
+    }
+    UI.fadeOut();
+    this._seaming = false;
+  }
+
+  // the passenger's side of the seam: ride along into the next city
+  async _followConvoy(to) {
+    if (this._seaming) return;
+    this._seaming = true;
+    this.drive = null;
+    this.avatar.group.visible = true;
+    this._autoRide = true; // the radio rides along too
+    UI.fadeIn(SEAMS[this.worldKey]?.label ?? "🛣️ riding along…");
+    await new Promise((r) => setTimeout(r, 500));
+    try {
+      await this.loadWorld(to);
+    } catch (err) {
+      console.error("[seam] convoy failed:", err);
+      this._autoRide = false;
+    }
+    UI.fadeOut();
+    this._seaming = false;
   }
 
   // ---------------------------------------------------------- restaurants
@@ -945,6 +1196,7 @@ export class Game {
     if (this.world) this.world.dispose();
     this.world = null;
     this.groundY = 0;
+    this.minimap.hide();
 
     const rid = `r:${city}:${door.poiIndex}`;
     this.worldKey = rid;
@@ -1003,6 +1255,7 @@ export class Game {
     if (this.world) this.world.dispose();
     this.world = null;
     this.groundY = 0;
+    this.minimap.hide();
 
     const cid = `c:${city}:${key}`;
     this.worldKey = cid;
@@ -1041,6 +1294,75 @@ export class Game {
     this.seatedAt = null;
     this.controls.enabled = true;
     UI.fadeIn("🌴 back out into the heat…");
+    await new Promise((r) => setTimeout(r, 600));
+    await this.loadWorld(back.city);
+    const [x, z] = this.world.findClearSpot(back.x ?? 0, back.z ?? 0, 3);
+    this.controls.pos.set(x, 0, z);
+    Net.sendWorld({ world: back.city, x, z });
+    UI.fadeOut();
+  }
+
+  // ------------------------------------------------------------ her café
+  async enterCafe(door) {
+    const city = this.worldKey;
+    this.returnSpot = { city, x: door.x, z: door.z };
+    UI.fadeIn("☕ tying on the aprons…");
+    await new Promise((r) => setTimeout(r, 650));
+
+    if (this.drive) { this.drive.speed = 0; this.exitCar(); }
+    this.effects.clear();
+    this._removeRemote();
+    this.remoteCar = null;
+    for (const g of this.liveCars) this.scene.remove(g);
+    this.liveCars = [];
+    for (const e of this.extras) this.scene.remove(e.group);
+    this.extras = [];
+    this.portals = [];
+    this.interactables = [];
+    this.eiffel = null;
+    this.towerCenter = null;
+    if (this.world) this.world.dispose();
+    this.world = null;
+    this.groundY = 0;
+    this.minimap.hide();
+
+    const fid = `f:${city}`;
+    this.worldKey = fid;
+    try {
+      this.world = new CafeWorld(this.scene, door.poi, city, this);
+      await this.world.build((pct, label) => UI.setLoading(pct, label));
+    } catch (err) {
+      console.error("[cafe] failed to open:", err);
+      try { this.world?.dispose(); } catch { /* already broken */ }
+      this.world = null;
+      await this.loadWorld(city);
+      UI.fadeOut();
+      UI.addSystem("hmm, the café's shutters are stuck 😅 try again in a moment");
+      return;
+    }
+
+    const sx = 0, sz = this.world.D / 2 - 2.2;
+    this.controls.pos.set(sx, 0, sz);
+    this.controls.yaw = 0;
+    this.controls.pitch = 0.3;
+    this.controls.dist = 8;
+    this.camera.position.set(sx, 3, sz + 5);
+    this.bloom.strength = 0.2;
+    this.bloom.threshold = 0.92;
+    this.renderer.toneMappingExposure = 1.12; // bright, milky café daylight
+    this.avatarLight.intensity = 0;
+    UI.setLocation(door.poi.n, "hers · the two of you on shift ☕");
+    UI.setAttribution("");
+    Net.sendWorld({ world: fid, x: sx, z: sz });
+    if (this.remoteState?.world === fid) this._spawnRemote(this.remoteState);
+    UI.fadeOut();
+  }
+
+  async exitCafe() {
+    const back = this.returnSpot;
+    this.seatedAt = null;
+    this.controls.enabled = true;
+    UI.fadeIn("🌤 flipping the sign to CLOSED for now…");
     await new Promise((r) => setTimeout(r, 600));
     await this.loadWorld(back.city);
     const [x, z] = this.world.findClearSpot(back.x ?? 0, back.z ?? 0, 3);
@@ -1163,6 +1485,21 @@ export class Game {
     this.world.tick(t, dt);
     for (const e of this.extras) e.tick?.(t, dt);
     this.effects.update(dt);
+    this.radio.tick(dt);
+
+    // minimap: rotate so "up" is the way you're facing/driving
+    if (!this.world.isInterior && this.minimap.world) {
+      const rot = this.drive
+        ? (this.drive.seat === "passenger" && this.remoteCar
+            ? this.remoteCar.group.rotation.y
+            : this.drive.heading) + Math.PI
+        : Math.atan2(p.x - this.camera.position.x, p.z - this.camera.position.z) + Math.PI;
+      const partnerPos = this.remote ? {
+        x: this.remote.avatar.group.position.x,
+        z: this.remote.avatar.group.position.z,
+      } : null;
+      this.minimap.update(dt, p.x, p.z, rot, !!this.drive, partnerPos);
+    }
 
     // photogrammetry streams in over time — keep landmarks seated on it
     if (photoreal) {

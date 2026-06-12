@@ -242,6 +242,30 @@ export function setLoading(pct, label) {
   $("loading-pct").textContent = pct < 1 ? `${Math.round(pct * 100)}% · ${label}` : "";
 }
 
+// ------------------------------------------------------------------ radio
+export function initRadio(radio) {
+  const el = $("radio");
+  const title = $("radio-title");
+  const artist = $("radio-artist");
+  const toggle = $("radio-toggle");
+  $("radio-prev").onclick = () => radio.prev();
+  $("radio-next").onclick = () => radio.next();
+  toggle.onclick = () => radio.toggle();
+  radio.onChanged = () => {
+    el.style.display = radio.visible ? "flex" : "none";
+    const t = radio.track();
+    if (t) {
+      title.textContent = t.title;
+      artist.textContent = t.artist;
+    } else {
+      title.textContent = "499 miles";
+      artist.textContent = "press play 💛";
+    }
+    toggle.textContent = radio.playing ? "⏸" : "▶";
+    el.classList.toggle("playing", radio.playing);
+  };
+}
+
 // ------------------------------------------------------------------ login
 export function initEmotes(onEmote) {
   document.querySelectorAll("#emotes button").forEach((btn) => {

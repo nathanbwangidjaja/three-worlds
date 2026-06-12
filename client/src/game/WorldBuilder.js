@@ -785,6 +785,49 @@ export class WorldBuilder {
       buf.n += 4;
     };
 
+    // OSM sometimes maps a building right on top of a main road's asphalt
+    // (it blocked the drive down Jl. Raya Legok–Karawaci) — sample the
+    // carriageways of real streets and skip any building standing in one
+    const laneGrid = ptGrid(30);
+    for (const r of data.roads) {
+      if (r.t !== "road" || r.w < 8) continue;
+      for (let s = 1; s < r.p.length; s++) {
+        const [ax, az] = r.p[s - 1], [bx, bz] = r.p[s];
+        const seg = [ax, az, bx, bz, r.w / 2 - 0.2];
+        // register the segment in every grid cell it passes near
+        const len = Math.hypot(bx - ax, bz - az);
+        const steps = Math.max(1, Math.ceil(len / 24));
+        for (let q = 0; q <= steps; q++) {
+          laneGrid.add(ax + ((bx - ax) * q) / steps, az + ((bz - az) * q) / steps, seg);
+        }
+      }
+    }
+    const segDepth = (x, z) => {
+      // how deep inside a carriageway this point is (0 = not inside)
+      let depth = 0;
+      for (const [ax, az, bx, bz, hw] of laneGrid.near(x, z, 30)) {
+        const dx = bx - ax, dz = bz - az;
+        const L2 = dx * dx + dz * dz || 1;
+        const tt = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / L2));
+        const d = Math.hypot(ax + dx * tt - x, az + dz * tt - z);
+        if (d < hw) depth = Math.max(depth, hw - d);
+      }
+      return depth;
+    };
+    const intrudesRoad = (pts) => {
+      // walk the outline; >1.6m into the asphalt means the building is
+      // standing in the street, not beside it
+      for (let i2 = 0; i2 < pts.length; i2++) {
+        const [ax, az] = pts[i2], [bx, bz] = pts[(i2 + 1) % pts.length];
+        const elen = Math.hypot(bx - ax, bz - az);
+        const esteps = Math.max(1, Math.ceil(elen / 1.5));
+        for (let q = 0; q <= esteps; q++) {
+          if (segDepth(ax + ((bx - ax) * q) / esteps, az + ((bz - az) * q) / esteps) > 1.6) return true;
+        }
+      }
+      return false;
+    };
+
     let i = 0;
     let chunkT = performance.now();
     for (const b of data.buildings) {
@@ -802,6 +845,7 @@ export class WorldBuilder {
       if (signedArea(pts) < 0) pts = pts.slice().reverse();
       const cat = b.c || "generic";
       const [bcx, bcz] = centroidOf(pts);
+      if (!b.hand && laneGrid.near(bcx, bcz, 30).length && intrudesRoad(pts)) continue; // mis-mapped onto the asphalt
       const bArea = Math.abs(signedArea(pts));
       const bDist = Math.hypot(bcx, bcz);
       const far = bDist > 900; // skyline tier: simpler walls, no street-level dressing
@@ -1621,7 +1665,7 @@ export class WorldBuilder {
     const zero = new THREE.Matrix4().makeScale(0, 0, 0);
     this._carHide = (spot) => {
       const im = this._carMeshes[spot.model];
-      if (!im) return;
+      if (!im || spot.slot === undefined) return; // cars carried in from another city have no instance here
       im.paint.setMatrixAt(spot.slot, zero);
       im.trim.setMatrixAt(spot.slot, zero);
       im.paint.instanceMatrix.needsUpdate = true;
