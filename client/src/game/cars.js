@@ -70,7 +70,7 @@ const BUILDERS = {
     L(new THREE.BoxGeometry(0.44, 0.12, 0.06), 0.68, 1.06, 2.46, HEAD);
     L(new THREE.BoxGeometry(0.5, 0.12, 0.06), -0.66, 1.06, -2.45, TAIL);
     L(new THREE.BoxGeometry(0.5, 0.12, 0.06), 0.66, 1.06, -2.45, TAIL);
-    return { wheels: [{ r: 0.42, w: 0.34, x: 0.84, z: 1.52 }], dims: [2.0, 4.95], name: "Range Rover",
+    return { wheels: [{ r: 0.42, w: 0.34, x: 0.84, z: 1.52 }], dims: [2.0, 4.95], name: "Range Rover", top: 24, acc: 10.5,
       paints: [0xf2f3f0, 0x16181b, 0x83878c, 0x2e3a45], seatY: 1.0 };
   },
 
@@ -87,7 +87,7 @@ const BUILDERS = {
     L(new THREE.BoxGeometry(0.36, 0.08, 0.06), -0.7, 0.74, 2.32, HEAD);
     L(new THREE.BoxGeometry(0.36, 0.08, 0.06), 0.7, 0.74, 2.32, HEAD);
     L(new THREE.BoxGeometry(1.5, 0.07, 0.05), 0, 0.88, -2.33, TAIL);
-    return { wheels: [{ r: 0.36, w: 0.3, x: 0.82, z: 1.45 }], dims: [1.92, 4.77], name: "Lexus LC500",
+    return { wheels: [{ r: 0.36, w: 0.3, x: 0.82, z: 1.45 }], dims: [1.92, 4.77], name: "Lexus LC500", top: 29, acc: 13,
       paints: [0xb4673f, 0xa31621, 0xe8e6e0, 0x1a1c1e], openTop: true, seatY: 0.66, seatZ: -0.78, seatX: 0.4 };
   },
 
@@ -104,7 +104,7 @@ const BUILDERS = {
     L(new THREE.BoxGeometry(0.42, 0.07, 0.06), -0.62, 0.8, 2.24, HEAD);
     L(new THREE.BoxGeometry(0.42, 0.07, 0.06), 0.62, 0.8, 2.24, HEAD);
     L(new THREE.BoxGeometry(1.7, 0.06, 0.05), 0, 0.96, -2.23, TAIL);
-    return { wheels: [{ r: 0.35, w: 0.3, x: 0.84, z: 1.4 }], dims: [1.94, 4.5], name: "Acura NSX",
+    return { wheels: [{ r: 0.35, w: 0.3, x: 0.84, z: 1.4 }], dims: [1.94, 4.5], name: "Acura NSX", top: 30, acc: 14,
       paints: [0xa3192a, 0x90939a, 0x101214], seatY: 0.6 };
   },
 
@@ -121,7 +121,7 @@ const BUILDERS = {
     L(cylZ(0.15, 0.06, 10), 0.5, 0.82, 1.9, HEAD);
     L(new THREE.BoxGeometry(0.22, 0.18, 0.05), -0.6, 0.78, -1.9, TAIL);
     L(new THREE.BoxGeometry(0.22, 0.18, 0.05), 0.6, 0.78, -1.9, TAIL);
-    return { wheels: [{ r: 0.3, w: 0.26, x: 0.74, z: 1.2 }], dims: [1.73, 3.86], name: "Mini Cooper",
+    return { wheels: [{ r: 0.3, w: 0.26, x: 0.74, z: 1.2 }], dims: [1.73, 3.86], name: "Mini Cooper", top: 22, acc: 10,
       paints: [0x2a5d43, 0xa8242c, 0x29415e, 0xe9e7e2], seatY: 0.78 };
   },
 
@@ -139,7 +139,7 @@ const BUILDERS = {
     L(new THREE.BoxGeometry(0.46, 0.1, 0.06), 0.66, 0.92, 2.52, HEAD);
     L(new THREE.BoxGeometry(0.52, 0.09, 0.05), -0.64, 0.92, -2.5, TAIL);
     L(new THREE.BoxGeometry(0.52, 0.09, 0.05), 0.64, 0.92, -2.5, TAIL);
-    return { wheels: [{ r: 0.36, w: 0.3, x: 0.82, z: 1.6 }], dims: [1.92, 5.1], name: "Mercedes S-Class",
+    return { wheels: [{ r: 0.36, w: 0.3, x: 0.82, z: 1.6 }], dims: [1.92, 5.1], name: "Mercedes S-Class", top: 26, acc: 11,
       paints: [0x101214, 0xb9bcc2, 0x222a33, 0x3c3f44], seatY: 0.84 };
   },
 
@@ -159,7 +159,7 @@ const BUILDERS = {
     L(new THREE.BoxGeometry(0.16, 0.07, 0.1), 0.82, 1.58, 2.1, AMBER);
     L(new THREE.BoxGeometry(0.2, 0.2, 0.05), -0.7, 1.1, -2.28, TAIL);
     L(new THREE.BoxGeometry(0.2, 0.2, 0.05), 0.7, 1.1, -2.28, TAIL);
-    return { wheels: [{ r: 0.42, w: 0.34, x: 0.83, z: 1.45 }], dims: [1.93, 4.6], name: "G-Wagon",
+    return { wheels: [{ r: 0.42, w: 0.34, x: 0.83, z: 1.45 }], dims: [1.93, 4.6], name: "G-Wagon", top: 23, acc: 10,
       paints: [0x121416, 0xeceae6, 0x4a4e54], seatY: 1.1 };
   },
 
@@ -178,7 +178,7 @@ const BUILDERS = {
     L(new THREE.BoxGeometry(0.4, 0.14, 0.06), 0.64, 1.06, 2.46, HEAD);
     L(new THREE.BoxGeometry(0.16, 0.5, 0.05), -0.78, 1.3, -2.42, TAIL);           // vertical tails
     L(new THREE.BoxGeometry(0.16, 0.5, 0.05), 0.78, 1.3, -2.42, TAIL);
-    return { wheels: [{ r: 0.36, w: 0.28, x: 0.78, z: 1.55 }], dims: [1.85, 4.95], name: "Alphard",
+    return { wheels: [{ r: 0.36, w: 0.28, x: 0.78, z: 1.55 }], dims: [1.85, 4.95], name: "Alphard", top: 21, acc: 8.5,
       paints: [0x0e1013, 0xefede8, 0x7e8288], seatY: 1.05 };
   },
 
@@ -195,7 +195,7 @@ const BUILDERS = {
     L(cylZ(0.16, 0.06, 12), -0.62, 0.82, 2.18, HEAD);
     L(cylZ(0.16, 0.06, 12), 0.62, 0.82, 2.18, HEAD);
     L(new THREE.BoxGeometry(1.6, 0.06, 0.05), 0, 0.88, -2.2, TAIL);
-    return { wheels: [{ r: 0.34, w: 0.3, x: 0.8, z: 1.35 }], dims: [1.85, 4.5], name: "Porsche 911",
+    return { wheels: [{ r: 0.34, w: 0.3, x: 0.8, z: 1.35 }], dims: [1.85, 4.5], name: "Porsche 911", top: 32, acc: 15,
       paints: [0xc8cacc, 0xe9e7e1, 0x14161a, 0x274e37], seatY: 0.66 };
   },
 };

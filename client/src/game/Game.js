@@ -17,6 +17,7 @@ import { CampusWorld, CAMPUSES } from "./CampusWorld.js";
 import { CafeWorld } from "./CafeWorld.js";
 import { Radio } from "./Radio.js";
 import { Minimap } from "./Minimap.js";
+import { buildMitExtras } from "./mitCampus.js";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
@@ -661,6 +662,10 @@ export class Game {
         addExtra(sphGrounds);
         [hx, hz] = this.world.findClearSpot(2, 44, 4);
       } else {
+        // Boston: the whole MIT campus, hand-built — Great Dome, Stata,
+        // Kresge, Chapel, Media Lab, Simmons, Sloan, Killian Court, the
+        // sculptures and courts (mitCampus.js, anchored to the OSM bake)
+        buildMitExtras(this, addExtra);
         [hx, hz] = this.world.findClearSpot(0, 0, 4);
       }
       this.homePos = { x: hx, z: hz };
@@ -1058,20 +1063,32 @@ export class Game {
     const ok = this.controls.enabled;
     const fwd = ok ? ((k.has("KeyW") || k.has("ArrowUp") ? 1 : 0) - (k.has("KeyS") || k.has("ArrowDown") ? 1 : 0)) : 0;
     const steerIn = ok ? ((k.has("KeyD") || k.has("ArrowRight") ? 1 : 0) - (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0)) : 0;
-    const accel = fwd > 0 ? 9 : fwd < 0 ? (d.speed > 0.5 ? -14 : -6) : 0;
+    // every model has its own legs — the 911 genuinely outruns the Alphard
+    const top = d.spec.top ?? 16;
+    const acc = d.spec.acc ?? 9;
+    const accel = fwd > 0 ? acc * (1 - 0.6 * Math.max(0, d.speed) / top) : fwd < 0 ? (d.speed > 0.5 ? -16 : -7) : 0;
     d.speed += accel * dt;
     if (!fwd) d.speed *= Math.exp(-dt * 1.6);
-    d.speed = Math.max(-6, Math.min(16, d.speed));
+    d.speed = Math.max(-7, Math.min(top, d.speed));
     d.steer += (steerIn * 0.55 - d.steer) * Math.min(1, dt * 7);
-    d.heading -= d.steer * dt * Math.max(-1.7, Math.min(1.7, d.speed * 0.24));
+    // steering authority tapers at speed so high-speed driving stays stable
+    const yawRate = Math.max(-1.7, Math.min(1.7, d.speed * 0.24)) * (1 / (1 + Math.max(0, d.speed - 16) * 0.045));
+    d.heading -= d.steer * dt * yawRate;
 
     const nx = p.x + Math.sin(d.heading) * d.speed * dt;
     const nz = p.z + Math.cos(d.heading) * d.speed * dt;
     const hw = d.spec.dims[0] / 2 - 0.08, hl = d.spec.dims[1] / 2 - 0.08;
     const sin = Math.sin(d.heading), cos = Math.cos(d.heading);
+    // swept test: fast cars cover >1m per frame — check the midpoint too so
+    // thin colliders (fence rails) can't be tunneled through
+    const subSteps = Math.hypot(nx - p.x, nz - p.z) > 0.45 ? 2 : 1;
     let hit = false;
-    for (const [lx, lz] of [[hw, hl], [-hw, hl], [hw, -hl], [-hw, -hl]]) {
-      if (this.world.blocked(nx + lx * cos + lz * sin, nz - lx * sin + lz * cos)) { hit = true; break; }
+    for (let si = 1; si <= subSteps && !hit; si++) {
+      const mx = p.x + ((nx - p.x) * si) / subSteps;
+      const mz = p.z + ((nz - p.z) * si) / subSteps;
+      for (const [lx, lz] of [[hw, hl], [-hw, hl], [hw, -hl], [-hw, -hl]]) {
+        if (this.world.blocked(mx + lx * cos + lz * sin, mz - lx * sin + lz * cos)) { hit = true; break; }
+      }
     }
     // the world ends at the bake radius — except along the corridor to the
     // next city, where the real road keeps going to the hand-over point
@@ -1479,6 +1496,36 @@ export class Game {
       cp.x = Math.max(-hw, Math.min(hw, cp.x));
       cp.z = Math.max(-hd, Math.min(hd, cp.z));
       cp.y = Math.max(fy + 0.7, Math.min(fy + 3.05, cp.y));
+      // never let the camera collapse onto the player — at a back-wall
+      // station (the café barista at the counter, the matcha bar, the oven)
+      // the chase boom hits the wall and bottoms out in the player's head.
+      // Guarantee a standoff: keep the current angle if it's clear, else
+      // sweep for the nearest clear angle, else lift the camera overhead.
+      const MIN = 2.6;
+      let dx = cp.x - p.x, dz = cp.z - p.z;
+      let hdist = Math.hypot(dx, dz);
+      if (hdist < MIN) {
+        const inRoom = (x, z) => Math.abs(x) <= hw && Math.abs(z) <= hd;
+        const clear = (x, z) => inRoom(x, z) &&
+          !(this.world.blockedAt ? this.world.blockedAt(x, z, fy + 1.4) : this.world.blocked(x, z));
+        let baseA = hdist > 0.05 ? Math.atan2(dx, dz) : this.controls.yaw;
+        let best = null;
+        // try the current heading first, then widen the sweep both ways
+        for (const off of [0, 0.4, -0.4, 0.8, -0.8, 1.2, -1.2, 1.6, -1.6, 2.1, -2.1, 2.6, -2.6, Math.PI]) {
+          const a = baseA + off;
+          const cx = p.x + Math.sin(a) * MIN, cz = p.z + Math.cos(a) * MIN;
+          if (clear(cx, cz)) { best = [cx, cz]; break; }
+        }
+        if (best) {
+          cp.x = best[0]; cp.z = best[1];
+          cp.y = Math.min(fy + 3.05, Math.max(cp.y, fy + 1.9));
+        } else {
+          // truly boxed in: look down over the player's shoulder
+          cp.x = p.x + Math.sin(this.controls.yaw) * 0.9;
+          cp.z = p.z + Math.cos(this.controls.yaw) * 0.9;
+          cp.y = fy + 3.05;
+        }
+      }
       this.camera.lookAt(p.x, this.groundY + 1.4, p.z);
     }
     this.world.updateSun(p);

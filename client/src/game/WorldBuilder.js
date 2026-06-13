@@ -852,6 +852,10 @@ export class WorldBuilder {
 
       // hand-tuned building? route to its custom architectural style
       const rule = matchTuning(b.n, bcx, bcz, cat, bArea);
+      // a hand-built landmark model replaces this footprint entirely (Stata,
+      // Kresge, the Chapel…) — skip the plain extruded box AND its collider;
+      // mitCampus.js builds the geometry and its own colliders
+      if (rule?.hide) continue;
       const h = rule?.h ?? b.h;
       this.collisionPolys.push({ pts, bbox: polyBBox(pts), h });
       if (!far) this.buildingList.push({ pts, h, cat });

@@ -580,9 +580,11 @@ export class RestaurantWorld {
   requestBill() {
     this.state = "billing";
     this.stateT = 0;
+    this._billOpened = false;
     const tb = this.yourTable;
-    this.routeNpc(this.server, tb.x, tb.z + 1.7);
-    this.server.onArrive = () => {
+    const openBill = () => {
+      if (this._billOpened || this.state !== "billing") return;
+      this._billOpened = true;
       const total = this.order.reduce((s, it) => s + it[1], 0);
       const currency = this.city === "paris" ? "€" : this.city === "tangerang" ? "$" : "$";
       UI.openBill(this.poi.n, this.order, total, currency, () => {
@@ -598,6 +600,11 @@ export class RestaurantWorld {
         this.routeNpc(this.server, -this.W / 2 + 2.5, -this.D / 2 + 3.4);
       });
     };
+    this.routeNpc(this.server, tb.x, tb.z + 1.7);
+    this.server.onArrive = openBill;
+    // fallback: never soft-lock in "billing" if the server can't reach the
+    // table (blocked path, throttled tab) — bring the bill after a grace wait
+    setTimeout(openBill, 4500);
   }
 
   // tables, walls — and the two of you. Staff walk around people too.

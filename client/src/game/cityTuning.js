@@ -155,15 +155,29 @@ export const TUNING = {
     { match: "Boston Marriott Cambridge", style: "marriott" },
     { match: "The Kendall Hotel", style: "firehouse" },
     { match: "76 Koch Institute", style: "kochGlass" },
-    { match: /Green Building/, style: "greenPiers" },
+    { match: /Green Building/, style: "greenPiers" },     // keep the slab; radome added in code
     { match: /Technology Square/, style: "techSquare" },
-    { match: /Stata Center/, style: "stataMix" },
     { match: /Draper/, style: "labRibbons" },
-    { match: /Media Lab|E14|E15 Wiesner/, style: "glassStone" },
+    // Great Dome: keep a 4-story limestone box (h-capped); the dome + portico
+    // are built on top in mitCampus.js
+    { match: "10", style: "mitLimestone", h: 23 },
+    // --- hand-built MIT landmarks: hide the OSM box, mitCampus.js draws it ---
+    { match: /Stata Center/, hide: true },
+    { match: "W16 Kresge Auditorium", hide: true },
+    { match: "W15 MIT Chapel", hide: true },
+    { match: "E14 Media Lab", hide: true },
+    { match: "E15 Wiesner Building", hide: true },
+    { match: "W79 Simmons Hall", hide: true },
     // MIT east-campus halls: buff limestone & concrete
     { match: /^(E1[789]|E2[358]|E3[38]|E5[123]|E60|E62)\b|Koch Biology|Landau|Mudd|Ford Building|Whitaker|Parsons|Walker Memorial|Stratton|Tang Center|Hermann|Chang Building|Arthur D\. Little|Dreyfus|Sloan/, style: "mitLimestone" },
     // remaining big offices near Main St read as labs
     { match: /Broad Institute|Pfizer|Novartis|Biogen|Akamai|Amgen/, style: "labRibbons" },
+    // the Maclaurin group + Infinite Corridor frame Killian Court — every
+    // numbered building here is buff limestone, not the default blue glass.
+    // (named rules above win; this catches the unnamed/numeric remainder)
+    { at: [-305, 405], r: 235, style: "mitLimestone" },
+    // Sloan cluster (Amherst/Wadsworth/Memorial) reads limestone-and-brick too
+    { at: [330, 270], r: 170, style: "mitLimestone" },
   ],
   // Rules may also match by location: { at: [x, z], r, cat?, minArea? } —
   // used where OSM has the building but no name (Siloam, SPH, UPH...).

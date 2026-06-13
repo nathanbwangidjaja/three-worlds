@@ -16,7 +16,7 @@ const CITIES = {
     name: "Cambridge · Boston",
     lat: 42.3633093,
     lon: -71.0880085,
-    radius: 700,
+    radius: 1300, // all of MIT — Kendall to Killian Court, Sloan to Simmons
   },
   tangerang: {
     name: "Tangerang",
