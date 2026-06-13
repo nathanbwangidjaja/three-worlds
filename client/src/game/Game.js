@@ -1486,47 +1486,49 @@ export class Game {
       photoreal ? (origin, dir, far) => this.world.rayDistance(origin, dir, far) : null
     );
     if (this.world.isInterior) {
-      // keep the camera INSIDE the room — never above the ceiling or
-      // through a wall looking back in
+      // Interior camera: small rooms make a normal chase boom collapse into
+      // the player at a back wall. Instead of snapping (which jitters and
+      // flips between angles), drive a dedicated, smoothly-lerped camera:
+      // keep the player's view azimuth, back up as far as the room allows,
+      // and rise + look down over the shoulder when boxed in.
       this.controls.pitch = Math.min(this.controls.pitch, 0.6);
       this.controls.dist = Math.min(this.controls.dist, 7.5);
-      const cp = this.camera.position;
       const hw = this.world.W / 2 - 0.7, hd = this.world.D / 2 - 0.7;
       const fy = (this.world.floor ?? 0) * 3.8;
-      cp.x = Math.max(-hw, Math.min(hw, cp.x));
-      cp.z = Math.max(-hd, Math.min(hd, cp.z));
-      cp.y = Math.max(fy + 0.7, Math.min(fy + 3.05, cp.y));
-      // never let the camera collapse onto the player — at a back-wall
-      // station (the café barista at the counter, the matcha bar, the oven)
-      // the chase boom hits the wall and bottoms out in the player's head.
-      // Guarantee a standoff: keep the current angle if it's clear, else
-      // sweep for the nearest clear angle, else lift the camera overhead.
-      const MIN = 2.6;
-      let dx = cp.x - p.x, dz = cp.z - p.z;
-      let hdist = Math.hypot(dx, dz);
-      if (hdist < MIN) {
-        const inRoom = (x, z) => Math.abs(x) <= hw && Math.abs(z) <= hd;
-        const clear = (x, z) => inRoom(x, z) &&
-          !(this.world.blockedAt ? this.world.blockedAt(x, z, fy + 1.4) : this.world.blocked(x, z));
-        let baseA = hdist > 0.05 ? Math.atan2(dx, dz) : this.controls.yaw;
-        let best = null;
-        // try the current heading first, then widen the sweep both ways
-        for (const off of [0, 0.4, -0.4, 0.8, -0.8, 1.2, -1.2, 1.6, -1.6, 2.1, -2.1, 2.6, -2.6, Math.PI]) {
-          const a = baseA + off;
-          const cx = p.x + Math.sin(a) * MIN, cz = p.z + Math.cos(a) * MIN;
-          if (clear(cx, cz)) { best = [cx, cz]; break; }
-        }
-        if (best) {
-          cp.x = best[0]; cp.z = best[1];
-          cp.y = Math.min(fy + 3.05, Math.max(cp.y, fy + 1.9));
-        } else {
-          // truly boxed in: look down over the player's shoulder
-          cp.x = p.x + Math.sin(this.controls.yaw) * 0.9;
-          cp.z = p.z + Math.cos(this.controls.yaw) * 0.9;
-          cp.y = fy + 3.05;
-        }
+      const azi = this.controls.yaw;                 // camera sits behind the player here
+      const sinA = Math.sin(azi), cosA = Math.cos(azi);
+      const hitsWall = (x, z) => Math.abs(x) > hw || Math.abs(z) > hd ||
+        (this.world.blockedAt ? this.world.blockedAt(x, z, fy + 1.4) : this.world.blocked(x, z));
+      // how far the boom can back up along the azimuth before a wall/counter
+      const want = Math.min(this.controls.dist, 6.5);
+      let avail = want;
+      for (let d = 1.2; d <= want; d += 0.35) {
+        if (hitsWall(p.x + sinA * d, p.z + cosA * d)) { avail = Math.max(1.3, d - 0.5); break; }
       }
+      // rate-limit how fast the standoff distance can change, so a wall edge
+      // sweeping across the boom glides the camera in/out instead of stepping
+      const targetStandoff = Math.max(avail, 1.3);
+      if (this._interiorStandoff === undefined) this._interiorStandoff = targetStandoff;
+      const step = 6 * dt; // ≤ 6 m/s
+      this._interiorStandoff += Math.max(-step, Math.min(step, targetStandoff - this._interiorStandoff));
+      const standoff = this._interiorStandoff;
+      const cramp = Math.max(0, Math.min(1, (2.6 - standoff) / 1.6)); // 0 roomy … 1 boxed in
+      const tx = p.x + sinA * standoff;
+      const tz = p.z + cosA * standoff;
+      const ty = Math.min(fy + 3.05, fy + 1.5 + cramp * 1.5 + Math.sin(this.controls.pitch) * standoff * 0.6);
+      // smoothed state — lerping toward the target removes any per-frame jump
+      if (!this._interiorCam) this._interiorCam = new THREE.Vector3(tx, ty, tz);
+      const ic = this._interiorCam;
+      const k = Math.min(1, dt * 9);
+      ic.x += (tx - ic.x) * k; ic.y += (ty - ic.y) * k; ic.z += (tz - ic.z) * k;
+      ic.x = Math.max(-hw, Math.min(hw, ic.x));
+      ic.z = Math.max(-hd, Math.min(hd, ic.z));
+      ic.y = Math.max(fy + 0.8, Math.min(fy + 3.05, ic.y));
+      this.camera.position.copy(ic);
       this.camera.lookAt(p.x, this.groundY + 1.4, p.z);
+    } else if (this._interiorCam) {
+      this._interiorCam = null; // reset when we leave the room
+      this._interiorStandoff = undefined;
     }
     this.world.updateSun(p);
     this.world.tick(t, dt);
