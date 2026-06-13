@@ -861,10 +861,15 @@ export class WorldBuilder {
       if (!far) this.buildingList.push({ pts, h, cat });
       let style, buf, tuned = null;
       if (rule) {
-        tuned = STYLE_DEFS[rule.style];
-        buf = tunedBufferFor(rule.style);
+        // styleVary rotates a few cuts across a district (the MIT core) so it
+        // doesn't read as one stamped wall; deterministic by position
+        const styleKey = rule.styleVary
+          ? rule.styleVary[Math.abs(Math.round(bcx * 7 + bcz * 13)) % rule.styleVary.length]
+          : rule.style;
+        tuned = STYLE_DEFS[styleKey];
+        buf = tunedBufferFor(styleKey);
         style = { type: "facade" }; // tile scale: standard 12.8m × 12.4m grid
-        this.tunedBuildings.push({ name: b.n, style: rule.style });
+        this.tunedBuildings.push({ name: b.n, style: styleKey });
       } else {
         // style pick: deterministic, tall boston buildings lean glassy/modern
         let si;

@@ -59,9 +59,21 @@ export const STYLE_DEFS = {
     opts: { base: "#9aa0a2", seed: 223 },
     storefront: false,
   },
+  // MIT main-group limestone: large windows, buff Bedford stone, soft stone
+  // coursing — three subtly different cuts so the core isn't one stamped wall
   mitLimestone: {
     factory: "facade",
-    opts: { base: "#c9bfa8", stone: true, glassTop: "#aebec6", glassBottom: "#48565e", frame: "rgba(60,58,50,0.9)", noise: 0.04, seed: 227 },
+    opts: { base: "#d8d1c0", stone: true, bigWindows: true, glassTop: "#aebfc6", glassBottom: "#52707e", frame: "rgba(72,68,58,0.85)", noise: 0.05, seed: 227 },
+    storefront: false,
+  },
+  mitLime2: {
+    factory: "facade",
+    opts: { base: "#cfc7b2", stone: true, bigWindows: true, glassTop: "#a4b8c2", glassBottom: "#4c6776", frame: "rgba(64,60,52,0.85)", noise: 0.045, seed: 271 },
+    storefront: false,
+  },
+  mitLime3: {
+    factory: "facade",
+    opts: { base: "#ded7c6", stone: true, bigWindows: true, glassTop: "#b4c4cc", glassBottom: "#586e78", frame: "rgba(80,74,64,0.8)", noise: 0.05, seed: 283 },
     storefront: false,
   },
   greenPiers: {
@@ -158,9 +170,15 @@ export const TUNING = {
     { match: /Green Building/, style: "greenPiers" },     // keep the slab; radome added in code
     { match: /Technology Square/, style: "techSquare" },
     { match: /Draper/, style: "labRibbons" },
-    // Great Dome: keep a 4-story limestone box (h-capped); the dome + portico
-    // are built on top in mitCampus.js
-    { match: "10", style: "mitLimestone", h: 23 },
+    // Great Dome (Building 10): fully custom in mitCampus.js — hide the OSM box
+    { match: "10", hide: true },
+    { match: "7 Rogers Building", hide: true }, // Lobby 7 / 77 Mass Ave (custom)
+    // the Maclaurin wings directly framing Killian Court are ~5-story
+    // limestone — capped so the Great Dome rises above them, as in real life
+    { match: "3", style: "mitLimestone", h: 20 },
+    { match: "4", style: "mitLime2", h: 20 },
+    { match: "5", style: "mitLime3", h: 20 },
+    { match: "8", style: "mitLimestone", h: 20 },
     // --- hand-built MIT landmarks: hide the OSM box, mitCampus.js draws it ---
     { match: /Stata Center/, hide: true },
     { match: "W16 Kresge Auditorium", hide: true },
@@ -168,6 +186,8 @@ export const TUNING = {
     { match: "E14 Media Lab", hide: true },
     { match: "E15 Wiesner Building", hide: true },
     { match: "W79 Simmons Hall", hide: true },
+    { match: "E62", hide: true },                          // MIT Sloan (custom)
+    { match: /E52|Chang Building/, hide: true },           // Sloan Chang (custom)
     // MIT east-campus halls: buff limestone & concrete
     { match: /^(E1[789]|E2[358]|E3[38]|E5[123]|E60|E62)\b|Koch Biology|Landau|Mudd|Ford Building|Whitaker|Parsons|Walker Memorial|Stratton|Tang Center|Hermann|Chang Building|Arthur D\. Little|Dreyfus|Sloan/, style: "mitLimestone" },
     // remaining big offices near Main St read as labs
@@ -175,9 +195,9 @@ export const TUNING = {
     // the Maclaurin group + Infinite Corridor frame Killian Court — every
     // numbered building here is buff limestone, not the default blue glass.
     // (named rules above win; this catches the unnamed/numeric remainder)
-    { at: [-305, 405], r: 235, style: "mitLimestone" },
+    { at: [-305, 405], r: 235, styleVary: ["mitLimestone", "mitLime2", "mitLime3"] },
     // Sloan cluster (Amherst/Wadsworth/Memorial) reads limestone-and-brick too
-    { at: [330, 270], r: 170, style: "mitLimestone" },
+    { at: [330, 270], r: 170, styleVary: ["mitLimestone", "mitLime2", "mitLime3"] },
   ],
   // Rules may also match by location: { at: [x, z], r, cat?, minArea? } —
   // used where OSM has the building but no name (Siloam, SPH, UPH...).

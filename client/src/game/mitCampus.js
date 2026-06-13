@@ -12,112 +12,224 @@ const DOME_GRAY = 0xc4bcab;
 function mat(c, extra = {}) { return new THREE.MeshLambertMaterial({ color: c, ...extra }); }
 
 // ------------------------------------------------------------ Great Dome
-// Building 10: the Pantheon dome over Killian Court, ten Ionic columns,
-// "MASSACHVSETTS INSTITVTE OF TECHNOLOGY" across the frieze. Sits on the
-// OSM building box (height-capped to 24 by tuning).
-export function buildGreatDome(x, z, southFace = 33) {
+// Building 10 (Maclaurin) — built as ONE coherent structure: a limestone
+// building whose entire Killian Court face IS the grand 10-column colonnade
+// (full height, with the engraved frieze and the Lobby-10 glass behind it),
+// the Pantheon dome rising from the centre. The OSM box is hidden so the
+// colonnade reads as the building's front, not a porch glued onto an office.
+export function buildGreatDome(cx, cz, ry = 0) {
   const g = new THREE.Group();
+  const W = 60, D = 64, BH = 19.5, SF = D / 2; // building mass, south face at +SF
 
-  const drum = new THREE.Mesh(new THREE.CylinderGeometry(14, 14, 5.5, 28), mat(LIME));
-  drum.position.set(0, 26.5, 0);
-  g.add(drum);
-  // windowed drum band
-  const band = new THREE.Mesh(new THREE.CylinderGeometry(14.05, 14.05, 2.2, 28, 1, true), mat(0x6a6354, { side: THREE.DoubleSide }));
-  band.position.set(0, 26.7, 0);
-  g.add(band);
-  const dome = new THREE.Mesh(
-    new THREE.SphereGeometry(13.6, 30, 16, 0, Math.PI * 2, 0, Math.PI / 2),
-    mat(DOME_GRAY)
-  );
-  dome.position.set(0, 29.2, 0);
-  dome.scale.y = 0.66;
-  g.add(dome);
-  const oculus = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.4, 0.9, 20), mat(0xdfdacb));
-  oculus.position.set(0, 38.2, 0);
-  g.add(oculus);
+  // limestone building mass — windows on the back & sides
+  const sideTex = mitGlassFacadeTex(Math.round(W / 7), 5);
+  sideTex.wrapS = sideTex.wrapT = THREE.RepeatWrapping;
+  const box = new THREE.Mesh(new THREE.BoxGeometry(W, BH, D), new THREE.MeshLambertMaterial({ map: sideTex }));
+  box.position.set(0, BH / 2, 0);
+  box.castShadow = true; box.receiveShadow = true;
+  g.add(box);
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(W + 0.6, 0.8, D + 0.6), mat(0xb6ae9c));
+  roof.position.set(0, BH + 0.4, 0);
+  g.add(roof);
 
-  // south portico onto Killian Court
-  const south = southFace;
-  const steps = new THREE.Mesh(new THREE.BoxGeometry(36, 1.7, 8), mat(LIME_DARK));
-  steps.position.set(0, 0.85, south + 5.5);
-  g.add(steps);
+  // ---- the grand SOUTH colonnade: this IS the front of the building ----
   const colMat = mat(LIME);
+  // wide granite stair
+  const steps = new THREE.Mesh(new THREE.BoxGeometry(46, 1.6, 8), mat(LIME_DARK));
+  steps.position.set(0, 0.8, SF + 4.5);
+  g.add(steps);
+  // solid limestone returns flanking the colonnade (cover the side windows)
+  for (const s of [-1, 1]) {
+    const ret = new THREE.Mesh(new THREE.BoxGeometry(8, BH, 2.2), colMat);
+    ret.position.set(s * 26, BH / 2, SF + 0.2);
+    g.add(ret);
+  }
+  // tall gridded glass curtain (Lobby 10 windows) set into the central face
+  const gc = document.createElement("canvas");
+  gc.width = 512; gc.height = 256;
+  const gctx = gc.getContext("2d");
+  gctx.fillStyle = "#3c4f5a"; gctx.fillRect(0, 0, 512, 256);
+  gctx.strokeStyle = "rgba(210,215,210,0.6)"; gctx.lineWidth = 2;
+  for (let x2 = 0; x2 <= 512; x2 += 15) { gctx.beginPath(); gctx.moveTo(x2, 0); gctx.lineTo(x2, 256); gctx.stroke(); }
+  for (let y2 = 0; y2 <= 256; y2 += 19) { gctx.beginPath(); gctx.moveTo(0, y2); gctx.lineTo(512, y2); gctx.stroke(); }
+  const glassTex = new THREE.CanvasTexture(gc);
+  glassTex.colorSpace = THREE.SRGBColorSpace;
+  const glassWall = new THREE.Mesh(new THREE.PlaneGeometry(42, 16), new THREE.MeshLambertMaterial({ map: glassTex }));
+  glassWall.position.set(0, 9.2, SF + 0.45);
+  g.add(glassWall);
+  // 10 full-height Ionic columns standing on the stair
   for (let i = 0; i < 10; i++) {
-    const cx = -16.2 + (32.4 / 9) * i;
-    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.78, 0.9, 15, 12), colMat);
-    col.position.set(cx, 1.7 + 7.5, south + 3.6);
+    const px = -19 + (38 / 9) * i;
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.98, 1.1, 0.8, 14), colMat);
+    base.position.set(px, 0.4, SF + 2.6);
+    g.add(base);
+    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.74, 0.86, 16, 16), colMat);
+    col.position.set(px, 8.8, SF + 2.6);
     g.add(col);
-    const cap = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.55, 2.1), colMat);
-    cap.position.set(cx, 1.7 + 15.1, south + 3.6);
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.6, 2.1), colMat);
+    cap.position.set(px, 17.1, SF + 2.6);
     g.add(cap);
   }
-  const ent = new THREE.Mesh(new THREE.BoxGeometry(37, 2.7, 6.6), mat(LIME));
-  ent.position.set(0, 18.4, south + 2.8);
+  // entablature + engraved frieze spanning the colonnade, at the cornice line
+  const ent = new THREE.Mesh(new THREE.BoxGeometry(46, 2.7, 4), mat(LIME));
+  ent.position.set(0, 18.2, SF + 1.6);
   g.add(ent);
-  const c = document.createElement("canvas");
-  c.width = 1024; c.height = 72;
-  const ctx = c.getContext("2d");
-  ctx.fillStyle = "#cdc4ae"; ctx.fillRect(0, 0, 1024, 72);
-  ctx.fillStyle = "#6f6753";
-  ctx.font = "600 33px Georgia, serif";
-  ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillText("MASSACHVSETTS INSTITVTE OF TECHNOLOGY", 512, 38);
-  const friezeTex = new THREE.CanvasTexture(c);
+  const fc = document.createElement("canvas");
+  fc.width = 1024; fc.height = 64;
+  const fctx = fc.getContext("2d");
+  fctx.fillStyle = "#cdc4ae"; fctx.fillRect(0, 0, 1024, 64);
+  fctx.fillStyle = "#6f6753";
+  fctx.font = "600 30px Georgia, serif";
+  fctx.textAlign = "center"; fctx.textBaseline = "middle";
+  fctx.fillText("MASSACHVSETTS INSTITVTE OF TECHNOLOGY", 512, 34);
+  const friezeTex = new THREE.CanvasTexture(fc);
   friezeTex.colorSpace = THREE.SRGBColorSpace;
-  const frieze = new THREE.Mesh(new THREE.PlaneGeometry(36.4, 2.4), new THREE.MeshLambertMaterial({ map: friezeTex }));
-  frieze.position.set(0, 18.4, south + 6.15);
+  const frieze = new THREE.Mesh(new THREE.PlaneGeometry(45, 2.4), new THREE.MeshLambertMaterial({ map: friezeTex }));
+  frieze.position.set(0, 18.2, SF + 3.65);
   g.add(frieze);
-  const attic = new THREE.Mesh(new THREE.BoxGeometry(37, 3, 5.8), mat(LIME));
-  attic.position.set(0, 21.2, south + 2.4);
-  g.add(attic);
 
-  g.position.set(x, 0, z);
-  return { group: g };
+  // ---- the dome stack, rising from the centre above the cornice ----
+  const podium = new THREE.Mesh(new THREE.BoxGeometry(34, 3.2, 34), mat(LIME));
+  podium.position.set(0, BH + 1.6, 0);
+  g.add(podium);
+  const drum = new THREE.Mesh(new THREE.CylinderGeometry(14, 14, 6.5, 36), mat(LIME));
+  drum.position.set(0, BH + 6.5, 0);
+  g.add(drum);
+  for (let i = 0; i < 24; i++) { // discrete punched drum windows
+    const a = (i / 24) * Math.PI * 2;
+    const win = new THREE.Mesh(new THREE.BoxGeometry(0.5, 2.4, 1.3), mat(0x4a5560));
+    win.position.set(Math.cos(a) * 13.9, BH + 6.6, Math.sin(a) * 13.9);
+    win.rotation.y = -a;
+    g.add(win);
+  }
+  const cornice = new THREE.Mesh(new THREE.CylinderGeometry(14.9, 14.9, 0.9, 36), mat(0xcdc4b0));
+  cornice.position.set(0, BH + 10, 0);
+  g.add(cornice);
+  // shallow RIBBED saucer dome
+  const dc = document.createElement("canvas");
+  dc.width = 1024; dc.height = 256;
+  const dctx = dc.getContext("2d");
+  dctx.fillStyle = "#ccc3af"; dctx.fillRect(0, 0, 1024, 256);
+  for (let i = 0; i < 32; i++) {
+    const x0 = (i / 32) * 1024;
+    dctx.fillStyle = "rgba(120,112,96,0.5)"; dctx.fillRect(x0, 0, 3, 256);
+    dctx.fillStyle = "rgba(255,250,238,0.35)"; dctx.fillRect(x0 + 3, 0, 2, 256);
+  }
+  dctx.fillStyle = "rgba(120,112,96,0.28)";
+  for (let r = 1; r < 5; r++) dctx.fillRect(0, (r / 5) * 256, 1024, 2);
+  const domeTex = new THREE.CanvasTexture(dc);
+  domeTex.colorSpace = THREE.SRGBColorSpace;
+  const dome = new THREE.Mesh(
+    new THREE.SphereGeometry(13.7, 40, 20, 0, Math.PI * 2, 0, Math.PI / 2),
+    new THREE.MeshLambertMaterial({ map: domeTex })
+  );
+  dome.position.set(0, BH + 10.4, 0);
+  dome.scale.y = 0.5;
+  g.add(dome);
+  const lantern = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 2.9, 1.7, 16), mat(0xdfdacb));
+  lantern.position.set(0, BH + 17, 0);
+  g.add(lantern);
+  const finial = new THREE.Mesh(new THREE.SphereGeometry(0.65, 10, 8), mat(0xcfc8b4));
+  finial.position.set(0, BH + 18.1, 0);
+  g.add(finial);
+
+  g.position.set(cx, 0, cz);
+  g.rotation.y = ry;
+  return { group: g, W, D };
 }
 
 // ----------------------------------------- Building 7: Lobby 7 + little dome
-// The 77 Mass Ave entrance: 4-column portico, gridded glass screens, and the
-// Great Dome's smaller twin. ry faces the portico toward Mass Ave.
-export function buildLobby7(x, z, ry = -2.2) {
+// The 77 Mass Ave entrance (Rogers Building) — one coherent limestone
+// building whose Mass Ave face IS a 6-column Ionic portico with the Lobby-10
+// gridded glass behind it, the little dome (the Great Dome's twin) rising
+// from the centre. Built like the Great Dome so nothing embeds or floats.
+// ry faces the portico toward Mass Ave.
+export function buildLobby7(cx, cz, ry = 0) {
   const g = new THREE.Group();
+  const W = 64, D = 64, BH = 20, SF = D / 2;
+  const colMat = mat(LIME);
+
+  // limestone building mass (windows on the back & sides)
+  const sideTex = mitGlassFacadeTex(Math.round(W / 7), 5);
+  const box = new THREE.Mesh(new THREE.BoxGeometry(W, BH, D), new THREE.MeshLambertMaterial({ map: sideTex }));
+  box.position.set(0, BH / 2, 0);
+  box.castShadow = true;
+  g.add(box);
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(W + 0.6, 0.8, D + 0.6), mat(0xb6ae9c));
+  roof.position.set(0, BH + 0.4, 0);
+  g.add(roof);
+
+  // ---- the Mass Ave portico: the building's front ----
+  const steps = new THREE.Mesh(new THREE.BoxGeometry(34, 1.5, 7), mat(LIME_DARK));
+  steps.position.set(0, 0.75, SF + 4);
+  g.add(steps);
+  for (const s of [-1, 1]) { // limestone returns flanking the colonnade
+    const ret = new THREE.Mesh(new THREE.BoxGeometry(9, BH, 2.2), colMat);
+    ret.position.set(s * 25, BH / 2, SF + 0.2);
+    g.add(ret);
+  }
+  // gridded glass curtain behind the columns
+  const gc = document.createElement("canvas");
+  gc.width = 384; gc.height = 256;
+  const gctx = gc.getContext("2d");
+  gctx.fillStyle = "#3c4f5a"; gctx.fillRect(0, 0, 384, 256);
+  gctx.strokeStyle = "rgba(210,215,210,0.6)"; gctx.lineWidth = 2;
+  for (let x2 = 0; x2 <= 384; x2 += 15) { gctx.beginPath(); gctx.moveTo(x2, 0); gctx.lineTo(x2, 256); gctx.stroke(); }
+  for (let y2 = 0; y2 <= 256; y2 += 19) { gctx.beginPath(); gctx.moveTo(0, y2); gctx.lineTo(384, y2); gctx.stroke(); }
+  const glassTex = new THREE.CanvasTexture(gc);
+  glassTex.colorSpace = THREE.SRGBColorSpace;
+  const glassWall = new THREE.Mesh(new THREE.PlaneGeometry(30, 16), new THREE.MeshLambertMaterial({ map: glassTex }));
+  glassWall.position.set(0, 9.5, SF + 0.45);
+  g.add(glassWall);
+  // 6 full-height Ionic columns
+  for (let i = 0; i < 6; i++) {
+    const px = -14 + (28 / 5) * i;
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 1.06, 0.8, 14), colMat);
+    base.position.set(px, 0.4, SF + 2.4);
+    g.add(base);
+    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.74, 0.86, 16.5, 16), colMat);
+    col.position.set(px, 9, SF + 2.4);
+    g.add(col);
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.6, 2.1), colMat);
+    cap.position.set(px, 17.6, SF + 2.4);
+    g.add(cap);
+  }
+  // entablature across the colonnade
+  const ent = new THREE.Mesh(new THREE.BoxGeometry(34, 2.6, 4), mat(LIME));
+  ent.position.set(0, 18.8, SF + 1.5);
+  g.add(ent);
+
+  // ---- the little dome on top, centred ----
+  const podium = new THREE.Mesh(new THREE.BoxGeometry(24, 2.8, 24), mat(LIME));
+  podium.position.set(0, BH + 1.4, 0);
+  g.add(podium);
+  const drum = new THREE.Mesh(new THREE.CylinderGeometry(9.6, 9.6, 4.5, 30), mat(LIME));
+  drum.position.set(0, BH + 5, 0);
+  g.add(drum);
+  for (let i = 0; i < 18; i++) {
+    const a = (i / 18) * Math.PI * 2;
+    const win = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.8, 1.1), mat(0x4a5560));
+    win.position.set(Math.cos(a) * 9.5, BH + 5.1, Math.sin(a) * 9.5);
+    win.rotation.y = -a;
+    g.add(win);
+  }
+  const cornice = new THREE.Mesh(new THREE.CylinderGeometry(10.3, 10.3, 0.7, 30), mat(0xcdc4b0));
+  cornice.position.set(0, BH + 7.5, 0);
+  g.add(cornice);
   const dome = new THREE.Mesh(
-    new THREE.SphereGeometry(9.4, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2),
+    new THREE.SphereGeometry(9.4, 30, 16, 0, Math.PI * 2, 0, Math.PI / 2),
     mat(DOME_GRAY)
   );
-  dome.position.set(0, 26.5, 0);
-  dome.scale.y = 0.62;
+  dome.position.set(0, BH + 7.8, 0);
+  dome.scale.y = 0.55;
   g.add(dome);
-  const drum = new THREE.Mesh(new THREE.CylinderGeometry(9.7, 9.7, 3, 22), mat(LIME));
-  drum.position.set(0, 25, 0);
-  g.add(drum);
-  // portico
-  const front = 15;
-  const colMat = mat(LIME);
-  for (let i = 0; i < 4; i++) {
-    const cx = -7.5 + 5 * i;
-    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.92, 16.5, 12), colMat);
-    col.position.set(cx, 9.6, front);
-    g.add(col);
-  }
-  const ent = new THREE.Mesh(new THREE.BoxGeometry(20, 2.6, 4.4), mat(LIME));
-  ent.position.set(0, 19.2, front - 0.8);
-  g.add(ent);
-  // the three giant gridded glass screens between the columns
-  const glassMat = mat(0x42535c);
-  for (const gx of [-5, 0, 5]) {
-    const screen = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 14.5), glassMat);
-    screen.position.set(gx, 9.3, front - 2.2);
-    g.add(screen);
-    const grid = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 14.7), mat(0x2c2c28, { wireframe: true }));
-    grid.position.set(gx, 9.3, front - 2.15);
-    g.add(grid);
-  }
-  const steps = new THREE.Mesh(new THREE.BoxGeometry(22, 1.2, 6), mat(LIME_DARK));
-  steps.position.set(0, 0.6, front + 3.4);
-  g.add(steps);
-  g.position.set(x, 0, z);
+  const lantern = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 2.1, 1.3, 14), mat(0xdfdacb));
+  lantern.position.set(0, BH + 12.4, 0);
+  g.add(lantern);
+
+  g.position.set(cx, 0, cz);
   g.rotation.y = ry;
-  return { group: g };
+  return { group: g, W, D };
 }
 
 // ------------------------------------------------------- Kresge Auditorium
@@ -502,7 +614,7 @@ export function buildTennisCourts(x, z, cols = 6, rows = 1, ry = 0) {
 }
 
 // ------------------------------------------------------------ Killian Court
-export function buildKillianCourt(x, z) {
+export function buildKillianCourt(x, z, ry = 0) {
   const g = new THREE.Group();
   const pathMat = mat(0xcfcabe);
   const mkPath = (w, l, px, pz, ryy) => {
@@ -523,6 +635,7 @@ export function buildKillianCourt(x, z) {
     g.add(h);
   }
   g.position.set(x, 0, z);
+  g.rotation.y = ry;
   return { group: g };
 }
 
@@ -545,6 +658,162 @@ export function buildMoore(x, z) {
   plinth.position.set(0, 0.2, 0);
   g.add(plinth);
   g.position.set(x, 0, z);
+  return { group: g };
+}
+
+// limestone facade with LARGE square windows + piers + glass spandrels —
+// MIT's modern limestone look (E62, Sloan), not the default small-window box
+function mitGlassFacadeTex(cols = 6, floors = 6) {
+  const c = document.createElement("canvas");
+  c.width = 512; c.height = 512;
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = "#d9d2c1"; ctx.fillRect(0, 0, 512, 512);   // buff limestone
+  // faint stone-panel coursing
+  ctx.strokeStyle = "rgba(150,140,120,0.18)"; ctx.lineWidth = 1;
+  for (let y = 0; y <= 512; y += 32) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(512, y); ctx.stroke(); }
+  const fw = 512 / cols, fh = 512 / floors;
+  for (let r = 0; r < floors; r++) {
+    for (let cc = 0; cc < cols; cc++) {
+      const x = cc * fw, y = r * fh;
+      // limestone spandrel below + piers either side → window is the big inset
+      const wx = x + fw * 0.16, wy = y + fh * 0.2, ww = fw * 0.68, wh = fh * 0.6;
+      const g = ctx.createLinearGradient(0, wy, 0, wy + wh);
+      g.addColorStop(0, "#9fb6c4"); g.addColorStop(1, "#566f7e"); // sky-reflecting glass
+      ctx.fillStyle = g; ctx.fillRect(wx, wy, ww, wh);
+      // frame + a vertical + horizontal mullion (2x2 panes)
+      ctx.strokeStyle = "rgba(40,46,52,0.8)"; ctx.lineWidth = 2;
+      ctx.strokeRect(wx, wy, ww, wh);
+      ctx.beginPath(); ctx.moveTo(wx + ww / 2, wy); ctx.lineTo(wx + ww / 2, wy + wh); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(wx, wy + wh / 2); ctx.lineTo(wx + ww, wy + wh / 2); ctx.stroke();
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// ----------------------------------------------------- MIT Sloan E62 (2010)
+// Limestone-clad piers + big square glass windows, a full-height glass atrium
+// spine, and the curved cantilevered canopy over the entry glass wall.
+export function buildSloanE62(x, z) {
+  const g = new THREE.Group();
+  const FL = 6, fH = 5.3, H = FL * fH; // ~32 m, 6 floors
+  // sized to the WEST/main mass of the real footprint so it doesn't bury the
+  // small E60 (Arthur D. Little) building on its east side
+  const W = 64, D = 108;
+  const tex = mitGlassFacadeTex(Math.round(W / 6), FL);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  const texD = tex.clone(); texD.needsUpdate = true;
+  texD.repeat.set(1, 1);
+  const limeMat = new THREE.MeshLambertMaterial({ map: tex });
+  // main mass, slightly stepped: a taller spine + a stepped-back upper band
+  const lower = new THREE.Mesh(new THREE.BoxGeometry(W, H, D), limeMat);
+  lower.position.y = H / 2;
+  lower.castShadow = true; lower.receiveShadow = true;
+  g.add(lower);
+  // a 5th/6th-floor stepped setback on the river (south) end → roof terraces
+  const setback = new THREE.Mesh(new THREE.BoxGeometry(W - 14, fH * 1.0, D * 0.4), new THREE.MeshLambertMaterial({ map: mitGlassFacadeTex(12, 1) }));
+  setback.position.set(0, H + fH * 0.5, D * 0.28);
+  g.add(setback);
+  // glass-railed roof terrace edge
+  const terrace = new THREE.Mesh(new THREE.BoxGeometry(W - 2, 0.9, D - 2), new THREE.MeshLambertMaterial({ color: 0x9fb3bd, transparent: true, opacity: 0.4 }));
+  terrace.position.set(0, H + 0.45, 0);
+  g.add(terrace);
+
+  // central full-height GLASS ATRIUM spine on the west (entry) face
+  const atrium = new THREE.Mesh(
+    new THREE.BoxGeometry(2.2, H + 1.5, 26),
+    new THREE.MeshLambertMaterial({ color: 0x86a6bb, transparent: true, opacity: 0.7 })
+  );
+  atrium.position.set(-W / 2 - 0.6, (H + 1.5) / 2, -6);
+  g.add(atrium);
+  // atrium mullions
+  for (let i = 0; i <= 26; i += 2) {
+    const m2 = new THREE.Mesh(new THREE.BoxGeometry(0.16, H + 1.5, 0.16), mat(0xcfd4cb));
+    m2.position.set(-W / 2 - 1.0, (H + 1.5) / 2, -6 - 13 + i);
+    g.add(m2);
+  }
+
+  // ---- the entry: a 2-story glass vestibule at the BASE with a modest
+  // flat canopy over the doors (matches place_sloan_1 — it's understated;
+  // the tall glass atrium spine beside it is the dramatic element) ----
+  const ex = -W / 2, ez = 14, entryH = fH * 2, entryW = 16;
+  const entryGlass = new THREE.Mesh(
+    new THREE.PlaneGeometry(entryW, entryH),
+    new THREE.MeshLambertMaterial({ color: 0x556f7c, transparent: true, opacity: 0.72, side: THREE.DoubleSide })
+  );
+  entryGlass.position.set(ex - 0.12, entryH / 2, ez);
+  entryGlass.rotation.y = -Math.PI / 2;
+  g.add(entryGlass);
+  // fine steel mullion grid
+  for (let i = -entryW / 2; i <= entryW / 2; i += 2) {
+    const v = new THREE.Mesh(new THREE.BoxGeometry(0.1, entryH, 0.1), mat(0xc4c7cb));
+    v.position.set(ex - 0.25, entryH / 2, ez + i);
+    g.add(v);
+  }
+  for (let yy = 2.5; yy <= entryH; yy += 2.6) {
+    const hb = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, entryW), mat(0xc4c7cb));
+    hb.position.set(ex - 0.25, yy, ez);
+    g.add(hb);
+  }
+  // a small flush metal lintel right above the door glass (no floating canopy)
+  const lintel = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.8, entryW + 1.5), mat(0x6a6e72));
+  lintel.position.set(ex - 0.2, entryH + 0.4, ez);
+  g.add(lintel);
+
+  g.position.set(x, 0, z);
+  return { group: g, W, D };
+}
+
+// ---------------------------------------------- E52 Chang Building (art-deco)
+// 1930s stripped-classical limestone slab: vertical window bays, set-back top,
+// with a modern glass penthouse (Samberg Center) on the roof.
+export function buildSloanE52(x, z, ry = 0) {
+  const g = new THREE.Group();
+  const W = 66, D = 44, H = 30; // 7-ish floors
+  // art-deco limestone: tall vertical window bays separated by limestone piers
+  const c = document.createElement("canvas");
+  c.width = 512; c.height = 512;
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = "#d6cfbe"; ctx.fillRect(0, 0, 512, 512);
+  const bays = 9;
+  const bw = 512 / bays;
+  for (let i = 0; i < bays; i++) {
+    // recessed vertical window strip (the deco emphasis is vertical)
+    const wx = i * bw + bw * 0.28, ww = bw * 0.44;
+    ctx.fillStyle = "#41525c";
+    ctx.fillRect(wx, 28, ww, 512 - 70);
+    // floor mullions (horizontal spandrel bars, slightly lighter)
+    ctx.fillStyle = "#cfc7b4";
+    for (let y = 28; y < 460; y += 56) ctx.fillRect(wx, y, ww, 6);
+    // pier shadow lines
+    ctx.strokeStyle = "rgba(150,140,120,0.3)"; ctx.lineWidth = 1.5;
+    ctx.strokeRect(wx - 2, 26, ww + 4, 512 - 66);
+  }
+  // base course
+  ctx.fillStyle = "#c3bba6"; ctx.fillRect(0, 470, 512, 42);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const body = new THREE.Mesh(new THREE.BoxGeometry(W, H, D), new THREE.MeshLambertMaterial({ map: tex }));
+  body.position.y = H / 2;
+  body.castShadow = true;
+  g.add(body);
+  // set-back attic floor
+  const attic = new THREE.Mesh(new THREE.BoxGeometry(W - 8, 3.5, D - 8), new THREE.MeshLambertMaterial({ color: 0xcfc7b4 }));
+  attic.position.y = H + 1.75;
+  g.add(attic);
+  // modern glass penthouse (Samberg Conference Center)
+  const pent = new THREE.Mesh(
+    new THREE.BoxGeometry(W - 18, 5, D - 16),
+    new THREE.MeshLambertMaterial({ color: 0x7d97a6, transparent: true, opacity: 0.66 })
+  );
+  pent.position.y = H + 6;
+  g.add(pent);
+  const pentRoof = new THREE.Mesh(new THREE.BoxGeometry(W - 16, 0.5, D - 14), mat(0x9aa0a6));
+  pentRoof.position.y = H + 8.7;
+  g.add(pentRoof);
+  g.position.set(x, 0, z);
+  g.rotation.y = ry;
   return { group: g };
 }
 
@@ -660,17 +929,24 @@ export function buildMitExtras(game, addExtra) {
   const world = game.world;
   const col = (cx, cz, hw, hl, ry, h) => world.addCollider?.(rectPoly(cx, cz, hw, hl, ry), h);
 
-  // Building 10 / Great Dome (OSM bbox x -359..-297, z 370..436 → center -328,403)
-  addExtra(buildGreatDome(-328, 403, 33));
-  col(-328, 439, 18.5, 4, 0, 18);
+  // Building 10 / Great Dome — full custom building on the OSM footprint,
+  // rotated to the real campus axis (court-facing normal = 23.9°) so it lines
+  // up with Killian Court and the neighbouring Maclaurin wings.
+  const DOME_RY = 0.416;
+  addExtra(buildGreatDome(-328, 403, DOME_RY));
+  col(-328, 403, 30, 34, DOME_RY, 19); // building mass + colonnade, rotated
 
-  // Killian Court south of it + the Henry Moore on the east lawn
-  addExtra(buildKillianCourt(-310, 505));
-  addExtra(buildMoore(-230, 495));
-  col(-230, 495, 4, 2.6, 0, 3);
+  // Killian Court extends down the colonnade axis toward the river, rotated
+  // to the same campus angle so its paths line up with the building
+  addExtra(buildKillianCourt(-292, 485, DOME_RY));
+  addExtra(buildMoore(-250, 478));
+  col(-250, 478, 4, 2.6, 0, 3);
 
-  // Lobby 7 / 77 Mass Ave (bake: "7 Rogers Building" @ (-423,450); Mass Ave is SW)
-  addExtra(buildLobby7(-440, 462, -2.35));
+  // Lobby 7 / 77 Mass Ave — full custom building on Bldg 7 Rogers' footprint
+  // (@ -423,450), rotated so the portico faces Mass Ave (normal -68°). OSM box hidden.
+  const L7_RY = -1.189;
+  addExtra(buildLobby7(-423, 450, L7_RY));
+  col(-423, 450, 32, 35, L7_RY, 20);
 
   // Kresge + Chapel (OSM boxes hidden by tuning)
   addExtra(buildKresge(-580, 575, 0.3));
@@ -692,8 +968,8 @@ export function buildMitExtras(game, addExtra) {
   // Media Lab cube + Wiesner tile box (replace their OSM boxes)
   addExtra(buildMediaLab(59, 306, 52, 48, 34, 0));
   col(59, 306, 26, 24, 0, 9);
-  addExtra(buildWiesner(26, 270, 40, 36, 21, 0));
-  col(26, 270, 20, 18, 0, 9);
+  addExtra(buildWiesner(24, 272, 34, 32, 21, 0));
+  col(24, 272, 17, 16, 0, 9);
 
   // the Alchemist on the W20 lawn opposite Lobby 7
   addExtra(buildAlchemist(-462, 478, 0.7));
@@ -706,16 +982,25 @@ export function buildMitExtras(game, addExtra) {
   // du Pont tennis courts along the real strip (-819,739)→(-651,663)
   addExtra(buildTennisCourts(-728, 716, 6, 1, 0.425));
 
-  // Sloan E62 entry court on Wadsworth (NW corner of E62 @ (431,230))
-  addExtra(buildSloanCourt(400, 206, -0.8));
+  // MIT Sloan — the flagship E62 (custom: limestone + big windows + glass
+  // atrium + curved-canopy entry) with its engraved entry court, and the
+  // 1930s art-deco E52 Chang Building on Memorial Drive
+  // E62 centered on the WEST mass of its real footprint (E60 sits to the east)
+  addExtra(buildSloanE62(418, 218));
+  col(418, 218, 32, 54, 0, 9);
+  addExtra(buildSloanCourt(382, 218, Math.PI / 2)); // engraved wall faces the west entry
+  // E52 nudged north so it doesn't clip E53 Hermann
+  addExtra(buildSloanE52(358, 285, 0));
+  col(358, 285, 33, 21, 0, 9);
 
   // Simmons Hall sponge (replaces OSM box @ (-1107,687); slab runs E-W)
   addExtra(buildSimmons(-1107, 687, 0.05));
   col(-1107, 687, 55, 10, 0.05, 9);
 
-  // Kendall T head house on the plaza + Sailing Pavilion on the river
-  addExtra(buildKendallT(149, 96, 0.3));
-  col(149, 96, 4.6, 2.6, 0.3, 4);
+  // Kendall T head house — on the plaza NORTH of Main St, well clear of the
+  // roadway (it was sitting in the middle of Main St before)
+  addExtra(buildKendallT(155, 75, -0.5));
+  col(155, 75, 4.6, 2.6, -0.5, 4);
   addExtra(buildSailingPavilion(321, 545, 0));
   col(321, 545, 9.5, 4.5, 0, 6);
 }
