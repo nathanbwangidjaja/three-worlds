@@ -206,9 +206,11 @@ export const DESTINATIONS = {
   serpong: [
     { to: "tangerang", label: "🏝 Drive home — Lippo Village" },
     { to: "boston", label: "🍂 Fly to him — Boston" },
+    { to: "paris", label: "🗼 Meet in Paris" },
   ],
   paris: [
     { to: "boston", label: "🍂 Back to Boston" },
     { to: "tangerang", label: "🏝 Back to Tangerang" },
+    { to: "serpong", label: "☕ To her café — Gading Serpong" },
   ],
 };
