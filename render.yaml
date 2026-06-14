@@ -1,0 +1,13 @@
+# Render blueprint — hosts the Colyseus multiplayer server (the WebSocket
+# part that lets the two of you see each other). Deploy via render.com →
+# "New +" → "Blueprint" → pick this repo. Free plan sleeps after 15 min idle
+# and wakes in ~50s, so open the game once a minute before you share it.
+services:
+  - type: web
+    name: anniversary-server
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server/src/index.js
+    healthCheckPath: /
+    autoDeploy: true
