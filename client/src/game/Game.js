@@ -18,6 +18,7 @@ import { CafeWorld } from "./CafeWorld.js";
 import { Radio } from "./Radio.js";
 import { Minimap } from "./Minimap.js";
 import { buildMitExtras } from "./mitCampus.js";
+import { AnniversaryShow } from "./AnniversaryShow.js";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
@@ -125,6 +126,9 @@ export class Game {
     this.radio.load();
     UI.initRadio(this.radio);
 
+    // the anniversary finale fired from the top of the Eiffel Tower
+    this.annivShow = new AnniversaryShow(this.scene);
+
     // minimap + GPS to her café
     this.minimap = new Minimap();
     this._mmDests = [null];
@@ -186,6 +190,10 @@ export class Game {
       }
       if (m.kind === "cafe" && m.data && this.world?.isCafe) {
         this.world.apply(m.data);
+      }
+      if (m.kind === "anniv" && this.worldKey === "paris") {
+        // the partner set off the fireworks — share the moment
+        this.startAnniversary(false);
       }
       if (m.kind === "convoy" && m.data) {
         // our driver just crossed into the next city — ride along
@@ -277,6 +285,10 @@ export class Game {
       if (e.code === "KeyR" && this.drive) this.radio.toggle();
       if (e.code === "KeyN" && this.drive) this.radio.next();
       if (e.code === "KeyT" && this.world?.isInterior) this.world.drawTopic();
+      // the anniversary surprise — fired by Him from the top of the tower
+      if (e.code === "KeyY" && this.summit && this.worldKey === "paris" && this.role === "you") {
+        this.startAnniversary(true);
+      }
       if (e.code === "KeyM") {
         if (this.world?.isInterior) {
           UI.addSystem(this.worldKey?.startsWith("c:")
@@ -380,6 +392,7 @@ export class Game {
     for (const g of this.liveCars) this.scene.remove(g);
     this.liveCars = [];
     this.effects.clear();
+    this.annivShow.clear();
     this._removeRemote();
     for (const e of this.extras) this.scene.remove(e.group);
     this.extras = [];
@@ -819,8 +832,34 @@ export class Game {
     this.controls.pitch = 0.12;
     this.controls.dist = 9;
     this.camera.position.set(tc.x + 6, 283, tc.z + 6);
-    UI.addSystem("the whole city, just for you two ✨ — press E to ride back down");
+    UI.addSystem(this.role === "you"
+      ? "the whole city, just for you two ✨ — press Y for a little surprise 🎆 · E to ride down"
+      : "the whole city, just for you two ✨ — press E to ride back down");
     UI.fadeOut();
+  }
+
+  // ✈️🎆 the anniversary finale: a plane sweeps the night sky, then fireworks
+  // bloom over Paris and spell out HAPPY 5TH ANNIVERSARY. Visible from the
+  // summit and from the ground; the partner sees the same show.
+  startAnniversary(broadcast) {
+    if (this.worldKey !== "paris" || !this.towerCenter || this.annivShow.active) return;
+    // place the show out along the Champ de Mars axis, up in the sky
+    const tc = this.towerCenter;
+    const textCenter = new THREE.Vector3(
+      tc.x + CHAMP_AXIS.x * 165,
+      300,
+      tc.z + CHAMP_AXIS.z * 165,
+    );
+    const facing = new THREE.Vector3(-CHAMP_AXIS.x, 0, -CHAMP_AXIS.z); // toward the tower
+    this.annivShow.start(textCenter, facing);
+    // turn the player to face the show so they see it straight away
+    const px = this.controls.pos.x, pz = this.controls.pos.z;
+    this.controls.yaw = Math.atan2(px - textCenter.x, pz - textCenter.z);
+    this.controls.pitch = 0.04;
+    // (no text banner — the fireworks themselves spell it out 🎆)
+    UI.setBanner("look up, my love 💕");
+    setTimeout(() => UI.setBanner(null), 6000);
+    if (broadcast) Net.sendEvent("anniv", { world: "paris" });
   }
 
   async exitSummit() {
@@ -1534,6 +1573,7 @@ export class Game {
     this.world.tick(t, dt);
     for (const e of this.extras) e.tick?.(t, dt);
     this.effects.update(dt);
+    this.annivShow.update(dt);
     this.radio.tick(dt);
 
     // minimap: rotate so "up" is the way you're facing/driving
@@ -1679,6 +1719,16 @@ export class Game {
     } else if (this.togetherAtTower) {
       this.togetherAtTower = false;
       UI.setBanner(null);
+    }
+
+    // during the anniversary finale on the summit, take the camera off the
+    // chase rig (which sits where the tower mast is) and frame the sky show
+    if (this.annivShow.active && this.summit && this.annivShow.center) {
+      const tc = this.towerCenter, c = this.annivShow.center;
+      this.camera.position.set(
+        tc.x + CHAMP_AXIS.x * 3, 282, tc.z + CHAMP_AXIS.z * 3,
+      );
+      this.camera.lookAt(c.x, 288, c.z);
     }
 
     this.composer.render();
