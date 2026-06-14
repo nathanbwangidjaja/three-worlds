@@ -48,7 +48,8 @@ export class Controls {
     this.dom.addEventListener("pointermove", (e) => {
       if (!dragging) return;
       this.yaw -= (e.clientX - lx) * 0.0052;
-      this.pitch = Math.max(0.06, Math.min(1.25, this.pitch + (e.clientY - ly) * 0.004));
+      // negative pitch = look UP (see the tops of tall things like the tower)
+      this.pitch = Math.max(-1.3, Math.min(1.25, this.pitch + (e.clientY - ly) * 0.004));
       lx = e.clientX; ly = e.clientY;
     });
     this.dom.addEventListener("pointerup", () => (dragging = false));
@@ -114,10 +115,15 @@ export class Controls {
 
   updateCamera(dt, blockedAtFn, baseY = 0, rayFn = null, focusY = 1.6) {
     const target = new THREE.Vector3(this.pos.x, baseY + this.pos.y + focusY, this.pos.z);
+    // Looking UP (pitch < 0): a normal orbit can only tilt the camera higher to
+    // look DOWN, so to see tall things (the Eiffel Tower!) we keep the camera
+    // roughly level behind the player and raise the AIM point instead — the
+    // view then angles skyward by ~|pitch| radians.
+    const camPitch = this.pitch < 0 ? 0.04 : this.pitch;
     const dir = new THREE.Vector3(
-      Math.sin(this.yaw) * Math.cos(this.pitch),
-      Math.sin(this.pitch),
-      Math.cos(this.yaw) * Math.cos(this.pitch)
+      Math.sin(this.yaw) * Math.cos(camPitch),
+      Math.sin(camPitch),
+      Math.cos(this.yaw) * Math.cos(camPitch)
     );
 
     // shorten the boom if something is in the way (both checks when available:
@@ -136,11 +142,17 @@ export class Controls {
         if (blockedAtFn(px, pz, py)) { dist = Math.min(dist, Math.max(1.2, d - 1)); break; }
       }
     }
-    this.camDist = this.camDist === undefined ? dist : this.camDist + (dist - this.camDist) * Math.min(1, dt * (dist < this.camDist ? 14 : 3));
+    // boom length: snap IN fast on collision, ease OUT a bit slower to avoid pops
+    this.camDist = this.camDist === undefined ? dist : this.camDist + (dist - this.camDist) * Math.min(1, dt * (dist < this.camDist ? 18 : 8));
 
     const desired = target.clone().addScaledVector(dir, this.camDist);
     desired.y = Math.max(baseY + 0.7, desired.y);
-    this.camera.position.lerp(desired, Math.min(1, dt * 7));
-    this.camera.lookAt(target);
+    // follow the orbit snappily so dragging the camera feels responsive (a tiny
+    // bit of smoothing remains at high frame rates to stay buttery, not laggy)
+    this.camera.position.lerp(desired, Math.min(1, dt * 30));
+    // when looking up, raise the look-at point so the view tilts toward the sky
+    const lookAt = target.clone();
+    if (this.pitch < 0) lookAt.y += Math.tan(-this.pitch) * this.camDist;
+    this.camera.lookAt(lookAt);
   }
 }
