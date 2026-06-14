@@ -15,4 +15,6 @@ refs/
 .claude/settings.local.json
 .DS_Store
 *.log
-client/public/music/*.mp3
+# NOTE: music/*.mp3 is intentionally TRACKED so full songs deploy with the site.
+# (Repo is public — these are copyrighted tracks. That's an accepted tradeoff
+# for this personal gift. Make the repo private if that matters to you.)

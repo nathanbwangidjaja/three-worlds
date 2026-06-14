@@ -1100,9 +1100,16 @@ export class Game {
   // seat an avatar inside a car (open tops show you, closed cars hide you)
   _seatAvatarInCar(avatar, car, seat) {
     const spec = car.spec;
-    if (!spec.openTop) { avatar.group.visible = false; return; }
-    avatar.group.visible = true;
     const heading = car.group.rotation.y;
+    if (!spec.openTop) {
+      // hidden inside a closed car — but keep the avatar synced to the car so
+      // the minimap dot (and anything tracking their position) stays accurate.
+      avatar.group.visible = false;
+      avatar.group.position.set(car.group.position.x, car.group.position.y, car.group.position.z);
+      avatar.group.rotation.y = heading;
+      return;
+    }
+    avatar.group.visible = true;
     const lx = (seat === "driver" ? -1 : 1) * (spec.seatX ?? 0.4);
     const lz = spec.seatZ ?? -0.35;
     const sin = Math.sin(heading), cos = Math.cos(heading);
@@ -1114,6 +1121,96 @@ export class Game {
     avatar.group.rotation.y = heading;
   }
 
+  // Dead-reckon the partner's car so it drives smoothly between network
+  // packets instead of teleporting to each one. We INTEGRATE its motion every
+  // frame from the reported speed + heading (continuous, never steppy) and
+  // then gently pull toward the authoritative pose to correct drift. A riding
+  // passenger is glued to the result, so this is also their ride's smoothness.
+  _updateRemoteCar(dt) {
+    const cs = this.remoteCarState;
+    if (!cs?.on || cs.seat !== "driver" || cs.world !== this.worldKey) return;
+    if (!this.remoteCar || !this.remote) return;
+    const car = this.remoteCar.group;
+    const tgt = this.remote.target;
+    const v = tgt.speed || 0;
+    const prevX = car.position.x, prevZ = car.position.z;
+
+    // 1) prediction — roll forward along the CURRENT heading every frame. This
+    //    is what removes the "skipping": motion is continuous, not a snap to
+    //    each discrete sample.
+    const h = car.rotation.y;
+    car.position.x += Math.sin(h) * v * dt;
+    car.position.z += Math.cos(h) * v * dt;
+
+    // 2) correction — ease toward the authoritative position, led forward by a
+    //    fraction of a second so we aim at where the driver IS now (masking
+    //    latency), not where the last packet said. Self-cancels at a stop.
+    const lead = 0.10;
+    const aimX = tgt.x + Math.sin(tgt.ry) * v * lead;
+    const aimZ = tgt.z + Math.cos(tgt.ry) * v * lead;
+    const ck = Math.min(1, dt * 5);
+    car.position.x += (aimX - car.position.x) * ck;
+    car.position.z += (aimZ - car.position.z) * ck;
+
+    // 3) heading — ease toward the reported car heading (cars rotate slowly
+    //    enough that a straight ease at 30Hz reads as smooth and tight).
+    let dh = tgt.ry - car.rotation.y;
+    while (dh > Math.PI) dh -= Math.PI * 2;
+    while (dh < -Math.PI) dh += Math.PI * 2;
+    car.rotation.y += dh * Math.min(1, dt * 14);
+
+    car.position.y = this.world.surfaceY ? this.world.surfaceY(car.position.x, car.position.z) : 0;
+
+    const moved = Math.hypot(car.position.x - prevX, car.position.z - prevZ);
+    for (const w of this.remoteCar.wheels) w.spin.rotation.x += moved / w.r;
+
+    // riding shotgun: glue our control point to the car THIS frame, before the
+    // camera reads it — no one-frame trail, no rubber-banding.
+    if (this.drive?.seat === "passenger") {
+      this.controls.pos.set(car.position.x, 0, car.position.z);
+      this._seatAvatarInCar(this.avatar, this.remoteCar, "passenger");
+    }
+  }
+
+  // Dedicated chase camera for driving (driver OR passenger). Rigidly anchored
+  // to the car so it never shakes: no collision-boom flicker (the orbit cam's
+  // per-frame hit/no-hit test was lurching camDist in and out), and the focus
+  // height is smoothed so 2.5m surface cells don't step the view vertically.
+  _driveCamera(dt) {
+    const d = this.drive;
+    let cx, cz;
+    if (d.seat === "passenger") {
+      if (!this.remoteCar) return;
+      const g = this.remoteCar.group;
+      cx = g.position.x; cz = g.position.z;
+    } else {
+      cx = d.group.position.x; cz = d.group.position.z;
+    }
+    // controls.yaw already trails the car heading (recentred in _driveFrame),
+    // and still honours a mouse-drag orbit. Read it for the azimuth.
+    const yaw = this.controls.yaw;
+    const pitch = Math.max(-0.15, Math.min(0.7, this.controls.pitch));
+    const dist = Math.max(6, Math.min(13, this.controls.dist));
+    const cp = Math.cos(pitch);
+
+    const sy = this.world.surfaceY ? this.world.surfaceY(cx, cz) : 0;
+    this._driveFocusY = (this._driveFocusY ?? sy) + (sy - (this._driveFocusY ?? sy)) * Math.min(1, dt * 5);
+    const fx = cx, fy = this._driveFocusY + 1.7, fz = cz;
+
+    const dx = fx + Math.sin(yaw) * cp * dist;
+    let dy = fy + Math.sin(pitch) * dist;
+    const dz = fz + Math.cos(yaw) * cp * dist;
+    dy = Math.max(fy + 0.6, dy);
+
+    // light positional smoothing only — absorbs dist/pitch/yaw changes without
+    // a pop, but the car-relative anchor means effectively zero follow lag.
+    const k = Math.min(1, dt * 18);
+    this.camera.position.x += (dx - this.camera.position.x) * k;
+    this.camera.position.y += (dy - this.camera.position.y) * k;
+    this.camera.position.z += (dz - this.camera.position.z) * k;
+    this.camera.lookAt(fx, fy, fz);
+  }
+
   // car physics + chase camera for the frame we're driving
   _driveFrame(dt) {
     const d = this.drive;
@@ -1122,6 +1219,16 @@ export class Game {
       if (!this.remoteCar) { this.exitCar(true); return; }
       const g = this.remoteCar.group;
       p.set(g.position.x, 0, g.position.z);
+      // ride behind the car AS IT TURNS — swing the camera to follow the car's
+      // heading, exactly like the driver's chase cam. Without this the car
+      // rotates under a frozen camera and turns look like they don't happen.
+      const sp = Math.abs(this.remote?.target?.speed ?? 0);
+      if (sp > 1.2) {
+        let dy = g.rotation.y + Math.PI - this.controls.yaw;
+        while (dy > Math.PI) dy -= Math.PI * 2;
+        while (dy < -Math.PI) dy += Math.PI * 2;
+        this.controls.yaw += dy * Math.min(1, dt * 2.2);
+      }
       this._seatAvatarInCar(this.avatar, this.remoteCar, "passenger");
       return;
     }
@@ -1494,6 +1601,10 @@ export class Game {
     const photoreal = !!this.world.isPhotoreal;
     const headY = this.groundY + 2.5;
     let speed = 0;
+    // dead-reckon the partner's car BEFORE we read it (drive frame + camera) so
+    // a riding passenger and the chase cam see the freshest, continuously-moving
+    // transform — not a one-frame-stale, packet-stepped position.
+    this._updateRemoteCar(dt);
     if (this.drive) {
       this._driveFrame(dt); // car physics owns the position this frame
     } else {
@@ -1551,19 +1662,24 @@ export class Game {
     }
     this.avatar.animate(dt, this.seatedAt || this.drive ? 0 : speed, t);
 
-    this.controls.updateCamera(
-      dt,
-      photoreal
-        // "inside a building" = below the top surface at that spot, with a pass
-        // for being under the tower/bridges (surface far above ≈ open air)
-        ? (x, z, y) => {
-            const s = this.world.groundHeight(x, z);
-            return s !== null && s > y + 1.2 && s - y < 40;
-          }
-        : (x, z, y) => this.world.blockedAt(x, z, y),
-      this.groundY,
-      photoreal ? (origin, dir, far) => this.world.rayDistance(origin, dir, far) : null
-    );
+    if (this.drive) {
+      // a car gets its own rigidly-anchored chase cam (no boom shake)
+      this._driveCamera(dt);
+    } else {
+      this.controls.updateCamera(
+        dt,
+        photoreal
+          // "inside a building" = below the top surface at that spot, with a pass
+          // for being under the tower/bridges (surface far above ≈ open air)
+          ? (x, z, y) => {
+              const s = this.world.groundHeight(x, z);
+              return s !== null && s > y + 1.2 && s - y < 40;
+            }
+          : (x, z, y) => this.world.blockedAt(x, z, y),
+        this.groundY,
+        photoreal ? (origin, dir, far) => this.world.rayDistance(origin, dir, far) : null
+      );
+    }
     if (this.world.isInterior) {
       // Interior camera: small rooms make a normal chase boom collapse into
       // the player at a back wall. Instead of snapping (which jitters and
@@ -1662,21 +1778,30 @@ export class Game {
           ty = rg + Math.max(0, Math.min(3, tgt.y - rg));
         }
       }
+      const inCar = !!(this.remoteCarState?.on && this.remoteCarState.world === this.worldKey);
       // partner sitting on a bench: pin them to the seat in an idle pose
       const benched = this.remoteBench && this.worldKey === "paris";
       if (benched) {
         g.position.set(this.remoteBench.x, 0.27, this.remoteBench.z);
         g.rotation.y = this.remoteBench.ry;
+      } else if (inCar) {
+        // partner is in a car: their avatar is seated ON the car (below), and
+        // the car itself is dead-reckoned in _updateRemoteCar. Lerping the
+        // avatar freely here would fight that and drift them off the seat.
       } else {
-        g.position.x += (tgt.x - g.position.x) * Math.min(1, dt * 10);
-        g.position.y += (ty - g.position.y) * Math.min(1, dt * 10);
-        g.position.z += (tgt.z - g.position.z) * Math.min(1, dt * 10);
+        // snappier follow (was dt*10) so remote avatars hug the latest position
+        // instead of trailing through a smoothing lag.
+        const k = Math.min(1, dt * 16);
+        g.position.x += (tgt.x - g.position.x) * k;
+        g.position.y += (ty - g.position.y) * k;
+        g.position.z += (tgt.z - g.position.z) * k;
         let rdh = tgt.ry - g.rotation.y;
         while (rdh > Math.PI) rdh -= Math.PI * 2;
         while (rdh < -Math.PI) rdh += Math.PI * 2;
-        g.rotation.y += rdh * Math.min(1, dt * 10);
+        g.rotation.y += rdh * k;
       }
-      r.avatar.animate(dt, benched ? 0 : tgt.speed, t);
+      // seated in a car → idle pose (don't run the walk cycle off the car speed)
+      r.avatar.animate(dt, (benched || inCar) ? 0 : tgt.speed, t);
 
       // hide the partner avatar when we're on different "levels" so they
       // never float in the sky or clip through a floor: one of us up the
@@ -1686,20 +1811,12 @@ export class Game {
       if (this.world?.isCampus && this.remoteFloor !== null && this.remoteFloor !== this.world.floor) coLocated = false;
       if (g.visible !== coLocated) g.visible = coLocated;
 
-      // partner in a car: their car follows them, they sit inside it
+      // partner in a car: seat their avatar on it. The DRIVER case car
+      // transform is dead-reckoned earlier in _updateRemoteCar; here we just
+      // pin the avatar to the seat now that the car has moved this frame.
       const cs = this.remoteCarState;
       if (cs?.on && cs.world === this.worldKey) {
         if (cs.seat === "driver" && this.remoteCar) {
-          const car = this.remoteCar.group;
-          const prevX = car.position.x, prevZ = car.position.z;
-          car.position.set(
-            g.position.x,
-            this.world.surfaceY ? this.world.surfaceY(g.position.x, g.position.z) : 0,
-            g.position.z
-          );
-          car.rotation.y = g.rotation.y;
-          const moved = Math.hypot(car.position.x - prevX, car.position.z - prevZ);
-          for (const w of this.remoteCar.wheels) w.spin.rotation.x += moved / w.r;
           this._seatAvatarInCar(r.avatar, this.remoteCar, "driver");
         } else if (cs.seat === "passenger" && this.drive?.seat === "driver") {
           this._seatAvatarInCar(r.avatar, this.drive, "passenger");
@@ -1707,16 +1824,29 @@ export class Game {
       }
     }
 
-    // network: send our position ~10x/s
+    // network: send our position — faster (20x/s) while driving so a passenger
+    // riding along stays glued to the car; ~10x/s on foot is plenty
     this.moveTimer += dt;
-    if (this.moveTimer > 0.1) {
+    // 30x/s while driving (was 20) so a riding passenger gets fresher car
+    // transforms and less to extrapolate over; ~10x/s on foot is plenty
+    const sendEvery = this.drive ? 0.033 : 0.1;
+    if (this.moveTimer > sendEvery) {
       this.moveTimer = 0;
+      // broadcast the CAR's real speed when driving (the `speed` local is 0 in
+      // the drive path) so the partner can extrapolate over network lag
+      const sendSpeed = this.drive?.seat === "driver" ? this.drive.speed : speed;
+      // when driving, send the CAR's heading — closed-top cars never sync the
+      // avatar's rotation to the car, so avatar.rotation.y is stale and the
+      // partner's car would never turn. d.heading is the true car orientation.
+      const sendRy = this.drive?.seat === "driver"
+        ? this.drive.heading
+        : this.avatar.group.rotation.y;
       Net.sendMove({
         x: +p.x.toFixed(2),
         y: +this.avatar.group.position.y.toFixed(2), // absolute, includes terrain
         z: +p.z.toFixed(2),
-        ry: +this.avatar.group.rotation.y.toFixed(3),
-        speed: +speed.toFixed(2),
+        ry: +sendRy.toFixed(3),
+        speed: +sendSpeed.toFixed(2),
       });
     }
 

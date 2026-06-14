@@ -69,7 +69,7 @@ export class Radio {
     const src = await this._srcFor(t);
     if (this.audio.src !== new URL(src, location.href).href) this.audio.src = src;
     try {
-      if (at > 0 && at < (this.audio.duration || t.dur)) this.audio.currentTime = at;
+      if (at > 0) this._applySeek(at);
       await this.audio.play();
       this.playing = true;
     } catch (err) {
@@ -78,6 +78,17 @@ export class Radio {
       this.playing = false;
     }
     this.onChanged?.();
+  }
+
+  // seek that works whether or not the audio metadata has loaded yet
+  _applySeek(at) {
+    const a = this.audio;
+    if (Number.isFinite(a.duration) && a.duration > 0) {
+      try { a.currentTime = Math.max(0, Math.min(at, a.duration - 0.15)); } catch { /* not seekable yet */ }
+    } else {
+      const h = () => { try { a.currentTime = at; } catch { /* ignore */ } a.removeEventListener("loadedmetadata", h); };
+      a.addEventListener("loadedmetadata", h);
+    }
   }
 
   // ----- local controls (each broadcasts so the passenger hears the same)
@@ -103,12 +114,28 @@ export class Radio {
     this._start(i, 0);
     if (broadcast) Net.sendEvent("radio", { a: "play", i, t: 0, w: this.worldKey });
   }
+  // jump straight to a specific track (from the playlist menu)
+  pick(i, broadcast = true) {
+    if (i < 0 || i >= this.tracks.length) return;
+    this._start(i, 0);
+    if (broadcast) Net.sendEvent("radio", { a: "play", i, t: 0, w: this.worldKey });
+  }
+  // scrub to a point in the current song (seconds)
+  seek(t, broadcast = true) {
+    this._applySeek(t);
+    if (broadcast) Net.sendEvent("radio", { a: "seek", i: this.idx, t, w: this.worldKey });
+  }
+  restart(broadcast = true) { this.seek(0, broadcast); }
 
   // ----- partner's controls arriving over the wire
   onRemote(data) {
     if (!this.tracks.length) return;
     if (data.a === "play") this._start(data.i ?? 0, data.t ?? 0);
     else if (data.a === "pause") this.pause(false);
+    else if (data.a === "seek") {
+      if ((data.i ?? this.idx) !== this.idx) this._start(data.i, data.t ?? 0);
+      else this._applySeek(data.t ?? 0);
+    }
   }
 
   // ----- in/out of the car

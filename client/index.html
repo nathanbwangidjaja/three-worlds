@@ -215,23 +215,51 @@
     /* ---------- car radio ---------- */
     #radio {
       position: fixed; z-index: 24; right: 22px; bottom: 78px;
-      display: none; align-items: center; gap: 10px;
+      display: none; flex-direction: column; gap: 7px;
       background: rgba(20,12,24,.82); border: 1px solid rgba(255,157,191,.4);
-      border-radius: 14px; padding: 9px 12px; backdrop-filter: blur(8px);
-      max-width: 290px; pointer-events: auto;
+      border-radius: 14px; padding: 10px 12px; backdrop-filter: blur(8px);
+      width: 270px; pointer-events: auto;
     }
+    #radio-top { display: flex; align-items: center; gap: 10px; }
     #radio-disc { font-size: 21px; }
     #radio.playing #radio-disc { animation: spin 3.5s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
     #radio-info { min-width: 0; flex: 1; }
     #radio-title { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     #radio-artist { font-size: 10.5px; opacity: .65; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #radio-list {
+      width: 30px; height: 30px; border-radius: 9px; cursor: pointer; font-size: 14px; flex-shrink: 0;
+      border: 1px solid rgba(255,157,191,.35); background: rgba(255,107,157,.15); color: var(--cream);
+    }
+    #radio-list:hover, #radio.menu-open #radio-list { border-color: var(--rose); background: rgba(255,107,157,.3); }
+    /* seek bar */
+    #radio-seek {
+      height: 7px; border-radius: 4px; background: rgba(255,255,255,.16);
+      cursor: pointer; overflow: hidden; position: relative;
+    }
+    #radio-fill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--rose), #ffd9a0); border-radius: 4px; pointer-events: none; }
+    #radio-bottom { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    #radio-time { font-size: 10px; opacity: .7; font-variant-numeric: tabular-nums; white-space: nowrap; }
     #radio-buttons { display: flex; gap: 4px; }
     #radio-buttons button {
       width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 12px;
       border: 1px solid rgba(255,157,191,.35); background: rgba(255,107,157,.15); color: var(--cream);
     }
     #radio-buttons button:hover { border-color: var(--rose); }
+    /* playlist menu (pops above the bar) */
+    #radio-menu {
+      display: none; position: absolute; bottom: calc(100% + 8px); left: 0; right: 0;
+      max-height: 260px; overflow-y: auto;
+      background: rgba(22,13,26,.96); border: 1px solid rgba(255,157,191,.4);
+      border-radius: 12px; padding: 6px; box-shadow: 0 12px 40px rgba(0,0,0,.5);
+    }
+    #radio.menu-open #radio-menu { display: block; }
+    #radio-menu .song {
+      padding: 7px 10px; border-radius: 8px; cursor: pointer; font-size: 12px; line-height: 1.3;
+    }
+    #radio-menu .song:hover { background: rgba(255,157,191,.14); }
+    #radio-menu .song.cur { background: rgba(255,157,191,.22); }
+    #radio-menu .song .s-art { font-size: 10px; opacity: .6; }
 
     /* ---------- her café ---------- */
     #cafe-stats {
@@ -316,12 +344,21 @@
   <div id="minimap"><canvas id="minimap-canvas" width="188" height="188"></canvas><div id="minimap-label"></div></div>
 
   <div id="radio">
-    <div id="radio-disc">📻</div>
-    <div id="radio-info"><div id="radio-title"></div><div id="radio-artist"></div></div>
-    <div id="radio-buttons">
-      <button id="radio-prev" title="previous">⏮</button>
-      <button id="radio-toggle" title="play/pause (R)">▶</button>
-      <button id="radio-next" title="next (N)">⏭</button>
+    <div id="radio-menu"></div>
+    <div id="radio-top">
+      <div id="radio-disc">📻</div>
+      <div id="radio-info"><div id="radio-title"></div><div id="radio-artist"></div></div>
+      <button id="radio-list" title="pick a song 🎵">🎵</button>
+    </div>
+    <div id="radio-seek"><div id="radio-fill"></div></div>
+    <div id="radio-bottom">
+      <span id="radio-time">0:00 / 0:00</span>
+      <div id="radio-buttons">
+        <button id="radio-restart" title="restart">⟲</button>
+        <button id="radio-prev" title="previous">⏮</button>
+        <button id="radio-toggle" title="play/pause (R)">▶</button>
+        <button id="radio-next" title="next (N)">⏭</button>
+      </div>
     </div>
   </div>
 

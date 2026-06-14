@@ -243,27 +243,81 @@ export function setLoading(pct, label) {
 }
 
 // ------------------------------------------------------------------ radio
+const fmtTime = (s) => {
+  if (!Number.isFinite(s) || s < 0) s = 0;
+  const m = Math.floor(s / 60), ss = Math.floor(s % 60);
+  return `${m}:${ss < 10 ? "0" : ""}${ss}`;
+};
+
 export function initRadio(radio) {
   const el = $("radio");
   const title = $("radio-title");
   const artist = $("radio-artist");
   const toggle = $("radio-toggle");
+  const seek = $("radio-seek");
+  const fill = $("radio-fill");
+  const timeEl = $("radio-time");
+  const menu = $("radio-menu");
+  const listBtn = $("radio-list");
+
   $("radio-prev").onclick = () => radio.prev();
   $("radio-next").onclick = () => radio.next();
+  $("radio-restart").onclick = () => radio.restart();
   toggle.onclick = () => radio.toggle();
+
+  // click (or drag) anywhere on the bar to scrub to that point of the song
+  const seekToEvent = (e) => {
+    const r = seek.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    const dur = radio.audio.duration;
+    if (Number.isFinite(dur) && dur > 0) radio.seek(frac * dur);
+  };
+  let scrubbing = false;
+  seek.addEventListener("pointerdown", (e) => { scrubbing = true; seek.setPointerCapture(e.pointerId); seekToEvent(e); });
+  seek.addEventListener("pointermove", (e) => { if (scrubbing) seekToEvent(e); });
+  seek.addEventListener("pointerup", () => { scrubbing = false; });
+
+  // playlist menu — pick any song; broadcasts so both cars switch together
+  listBtn.onclick = () => el.classList.toggle("menu-open");
+  const buildMenu = () => {
+    menu.innerHTML = "";
+    radio.tracks.forEach((t, i) => {
+      const row = document.createElement("div");
+      row.className = "song" + (i === radio.idx ? " cur" : "");
+      row.innerHTML = `<div>${t.title}</div><div class="s-art">${t.artist}</div>`;
+      row.onclick = () => { radio.pick(i); el.classList.remove("menu-open"); };
+      menu.appendChild(row);
+    });
+  };
+
   radio.onChanged = () => {
     el.style.display = radio.visible ? "flex" : "none";
+    if (!radio.visible) el.classList.remove("menu-open");
     const t = radio.track();
     if (t) {
       title.textContent = t.title;
       artist.textContent = t.artist;
     } else {
-      title.textContent = "499 miles";
+      title.textContent = radio.playlistName || "the radio";
       artist.textContent = "press play 💛";
     }
     toggle.textContent = radio.playing ? "⏸" : "▶";
     el.classList.toggle("playing", radio.playing);
+    if (menu.childElementCount !== radio.tracks.length) buildMenu();
+    else menu.querySelectorAll(".song").forEach((r, i) => r.classList.toggle("cur", i === radio.idx));
   };
+
+  // live progress: keep the seek bar + time in step with playback
+  const updateProgress = () => {
+    if (el.style.display !== "none" && !scrubbing) {
+      const cur = radio.audio.currentTime || 0;
+      const dur = radio.audio.duration || radio.track()?.dur || 0;
+      fill.style.width = dur ? `${Math.min(100, (cur / dur) * 100)}%` : "0%";
+      timeEl.textContent = `${fmtTime(cur)} / ${fmtTime(dur)}`;
+    }
+    requestAnimationFrame(updateProgress);
+  };
+  requestAnimationFrame(updateProgress);
 }
 
 // ------------------------------------------------------------------ login
