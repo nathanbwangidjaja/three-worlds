@@ -10,6 +10,7 @@ import { CUISINE_THEMES, CUISINE_MENUS, inferCuisine } from "./cuisines.js";
 import { TABLE_TALK } from "./story.js";
 import { Net } from "../net.js";
 import * as UI from "./ui.js";
+import { C, fmt } from "./copy.js";
 
 function mulberry32(seed) {
   let a = seed >>> 0;
@@ -58,7 +59,7 @@ export class RestaurantWorld {
   }
 
   async build(onProgress) {
-    onProgress?.(0.3, "opening the door");
+    onProgress?.(0.3, C.restaurant.loadProgress.open);
     const t = this.theme;
     const { W, D, rng } = this;
 
@@ -115,7 +116,7 @@ export class RestaurantWorld {
       this.group.add(frame);
     }
 
-    onProgress?.(0.5, "setting the tables");
+    onProgress?.(0.5, C.restaurant.loadProgress.tables);
 
     // ---- kitchen along the back ----
     this.buildKitchen();
@@ -147,7 +148,7 @@ export class RestaurantWorld {
     if (!yourTableSet) this.buildTable(0, -2, true);
     this.yourTable = this.tables.find((tb) => tb.yours);
 
-    onProgress?.(0.75, "lighting the candles");
+    onProgress?.(0.75, C.restaurant.loadProgress.candles);
 
     // ---- guests at some other tables ----
     for (const tb of this.tables) {
@@ -208,8 +209,8 @@ export class RestaurantWorld {
     // greet
     setTimeout(() => {
       if (this.state === "enter") {
-        this.host.avatar.say(`Welcome to ${this.poi.n}! Table for two? 💕`);
-        UI.addSystem(`${this.host.name} will seat you — press E near them to follow`);
+        this.host.avatar.say(fmt(C.restaurant.hostGreeting, { restaurant: this.poi.n }));
+        UI.addSystem(fmt(C.restaurant.hostWillSeat, { name: this.host.name }));
       }
     }, 700);
     return this;
@@ -464,13 +465,13 @@ export class RestaurantWorld {
       this.state = "walking";
       this.stateT = 0;
       this.hostArrived = false;
-      this.host.avatar.say("Right this way! 🚶");
+      this.host.avatar.say(C.restaurant.hostRightThisWay);
       const tb = this.yourTable;
       this.routeNpc(this.host, tb.x, tb.z + 2.0, () => {
         this.hostArrived = true;
-        this.host.avatar.say("Here you are — best seat in the house ✨");
+        this.host.avatar.say(C.restaurant.hostBestSeat);
       });
-      UI.addSystem("follow the host to your table");
+      UI.addSystem(C.restaurant.followHost);
       return true;
     }
     if (this.state === "walking" && this.hostArrived &&
@@ -496,10 +497,10 @@ export class RestaurantWorld {
   prompt(playerPos) {
     if (!this.host) return null; // still building
     const near = (p, r) => Math.hypot(p.x - playerPos.x, p.z - playerPos.z) < r;
-    if (this.state === "enter" && near(this.host.avatar.group.position, 3.2)) return `press E · "table for two, please" 💕`;
-    if (this.state === "walking" && this.hostArrived && near({ x: this.yourTable.x, z: this.yourTable.z }, 3.4)) return "press E · take your seat 🪑";
-    if (this.state === "eating" && this.stateT > 8) return "press E · ask for the bill 💳";
-    if (this.state === "paid") return near(this.doorPos, 4) ? "press E · head back outside 🌙" : "the door is by the front 🌙";
+    if (this.state === "enter" && near(this.host.avatar.group.position, 3.2)) return C.restaurant.promptTableForTwo;
+    if (this.state === "walking" && this.hostArrived && near({ x: this.yourTable.x, z: this.yourTable.z }, 3.4)) return C.restaurant.promptTakeSeat;
+    if (this.state === "eating" && this.stateT > 8) return C.restaurant.promptAskBill;
+    if (this.state === "paid") return near(this.doorPos, 4) ? C.restaurant.promptHeadOutside : C.restaurant.doorByFront;
     return null;
   }
 
@@ -518,13 +519,13 @@ export class RestaurantWorld {
     g.controls.yaw = side * Math.PI / 4;
     g.controls.dist = 4.8;
     g.controls.pitch = 0.5;
-    this.host.avatar.say("Your server will be right over 😊");
+    this.host.avatar.say(C.restaurant.serverComing);
     this.routeNpc(this.host, 2.2, this.D / 2 - 3.4); // back to the stand
     // server approaches
     setTimeout(() => {
       if (this.state !== "seated") return;
       this.routeNpc(this.server, tb.x, tb.z + 1.7, () => {
-        this.server.avatar.say(`Welcome in! What can I get you two tonight?`);
+        this.server.avatar.say(C.restaurant.serverWelcome);
         this.state = "ordering";
         this.stateT = 0;
         UI.openMenu(this.poi.n, this.cuisine, this.menu, (picked) => this.placeOrder(picked));
@@ -537,12 +538,12 @@ export class RestaurantWorld {
     this.state = "waiting";
     this.stateT = 0;
     const names = picked.map((p) => p[0]).join(", ");
-    this.game.avatar.say(names.length > 60 ? "We'll have... all of that 😄" : `We'll have the ${names} please!`);
-    setTimeout(() => this.server.avatar.say("Excellent choice! Coming right up 📝"), 900);
+    this.game.avatar.say(names.length > 60 ? C.restaurant.orderAllOfThat : fmt(C.restaurant.orderNamed, { names }));
+    setTimeout(() => this.server.avatar.say(C.restaurant.serverExcellent), 900);
     // server walks the order to the kitchen pass
     setTimeout(() => {
       this.routeNpc(this.server, 0, -this.D / 2 + 3.2, () => {
-        this.chefs?.forEach((ch) => ch.avatar.say("Oui chef! 🔥"));
+        this.chefs?.forEach((ch) => ch.avatar.say(C.restaurant.chefsOuiChef));
       });
     }, 1700);
     // food is ready after a short cook
@@ -550,12 +551,12 @@ export class RestaurantWorld {
       if (this.state !== "waiting") return;
       const tb = this.yourTable;
       this.routeNpc(this.server, tb.x, tb.z + 1.7, () => {
-        this.server.avatar.say("Bon appétit! 🍽");
+        this.server.avatar.say(C.restaurant.serverBonAppetit);
         const spots = [-0.3, 0.3, 0, -0.15, 0.15];
         this.order.slice(0, 5).forEach((item, i) => this.placeFood(tb, item[2], spots[i]));
         this.state = "eating";
         this.stateT = 0;
-        UI.addSystem("press T to draw a conversation card 💬 — press E later for the bill");
+        UI.addSystem(C.restaurant.drawCardHint);
         this.routeNpc(this.server, -this.W / 2 + 2.5, -this.D / 2 + 3.4);
       });
     }, 9000);
@@ -590,13 +591,13 @@ export class RestaurantWorld {
       UI.openBill(this.poi.n, this.order, total, currency, () => {
         this.state = "paid";
         this.stateT = 0;
-        this.server.avatar.say("Merci! Come back soon you two 💛");
+        this.server.avatar.say(C.restaurant.serverComeBack);
         const g = this.game;
         g.controls.enabled = true;
         g.seatedAt = null;
         g.avatar.group.position.y = 0;
         g.controls.pos.set(tb.x + 1.05, 0, tb.z + 1.4);
-        UI.addSystem("dinner's on the two of you forever 💛 — head to the door when ready");
+        UI.addSystem(C.restaurant.dinnerOnYou);
         this.routeNpc(this.server, -this.W / 2 + 2.5, -this.D / 2 + 3.4);
       });
     };

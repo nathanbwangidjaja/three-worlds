@@ -1,4 +1,7 @@
 // Per-city look & feel. Colors are hex numbers for three.js.
+// The visible words (titles, subtitles, travel labels) come from copy.json.
+
+import { C } from "./copy.js";
 
 export const THEMES = {
   boston: {
@@ -192,25 +195,35 @@ export const THEMES = {
   },
 };
 
-// Travel destinations shown in portals / travel menu
+// Pull the city titles/subtitles from copy.json so they're easy to edit.
+for (const key of Object.keys(THEMES)) {
+  const c = C.cities?.[key];
+  if (c) {
+    if (c.title != null) THEMES[key].title = c.title;
+    if (c.subtitle != null) THEMES[key].subtitle = c.subtitle;
+  }
+}
+
+// Travel destinations shown in the travel menu (labels from copy.json)
+const T = C.travel;
 export const DESTINATIONS = {
   boston: [
-    { to: "tangerang", label: "🏝 Fly to her — Tangerang" },
-    { to: "paris", label: "🗼 Meet in Paris" },
+    { to: "tangerang", label: T.toTangerang },
+    { to: "paris", label: T.toParis },
   ],
   tangerang: [
-    { to: "boston", label: "🍂 Fly to him — Boston" },
-    { to: "paris", label: "🗼 Meet in Paris" },
-    { to: "serpong", label: "☕ Drive to her café — Gading Serpong" },
+    { to: "boston", label: T.toBoston },
+    { to: "paris", label: T.toParis },
+    { to: "serpong", label: T.toSerpong },
   ],
   serpong: [
-    { to: "tangerang", label: "🏝 Drive home — Lippo Village" },
-    { to: "boston", label: "🍂 Fly to him — Boston" },
-    { to: "paris", label: "🗼 Meet in Paris" },
+    { to: "tangerang", label: T.toTangerangHome },
+    { to: "boston", label: T.toBoston },
+    { to: "paris", label: T.toParis },
   ],
   paris: [
-    { to: "boston", label: "🍂 Back to Boston" },
-    { to: "tangerang", label: "🏝 Back to Tangerang" },
-    { to: "serpong", label: "☕ To her café — Gading Serpong" },
+    { to: "boston", label: T.toBostonBack },
+    { to: "tangerang", label: T.toTangerangBack },
+    { to: "serpong", label: T.toSerpongBack },
   ],
 };

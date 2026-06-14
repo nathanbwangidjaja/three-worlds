@@ -5,6 +5,7 @@
 // what the campuses actually contain.
 import * as THREE from "three";
 import { Avatar, randomNpcLook } from "./Avatar.js";
+import { C, fmt } from "./copy.js";
 
 const FLOOR_H = 3.8;
 
@@ -480,10 +481,10 @@ export class CampusWorld {
   prompt(p) {
     if (this.nearStairs(p)) {
       const next = (this.floor + 1) % 3;
-      return `press E · stairs to ${this.cfg.floors[next]} 🪜`;
+      return fmt(C.campus.promptStairs, { floor: this.cfg.floors[next] });
     }
     if (this.floor === 0 && Math.hypot(p.x - this.doorPos.x, p.z - this.doorPos.z) < 3) {
-      return "press E · head back outside 🌴";
+      return C.campus.promptHeadOutside;
     }
     return null;
   }

@@ -3,10 +3,34 @@ import { Game } from "./game/Game.js";
 import * as UI from "./game/ui.js";
 import { STORY } from "./game/story.js";
 import { OUTFITS } from "./game/Avatar.js";
+import { C } from "./game/copy.js";
 
 const loginEl = document.getElementById("login");
 const statusEl = document.getElementById("login-status");
 const nameInput = document.getElementById("name-input");
+
+// fill the login screen + static HUD labels from copy.json (easy to edit)
+function applyStaticCopy() {
+  const set = (sel, text, html = false) => {
+    const el = document.querySelector(sel);
+    if (el && text != null) { if (html) el.innerHTML = text; else el.textContent = text; }
+  };
+  set("#login .hearts", C.login.hearts);
+  set("#login h1", C.login.title);
+  set("#login .sub", C.login.subtitle, true);
+  set('#login button[data-role="you"]', C.login.playAsHim);
+  set('#login button[data-role="her"]', C.login.playAsHer);
+  set("#outfit-row .sub", C.login.outfitPrompt);
+  set("#outfit-back", C.login.outfitBack);
+  set("#hint", C.ui.hint);
+  set("#travel h2", C.ui.travelTitle);
+  set("#travel-close", C.ui.travelClose);
+  set("#dialog .next", C.ui.dialogContinue);
+  if (nameInput && C.login.namePlaceholder) nameInput.placeholder = C.login.namePlaceholder;
+  const chatInput = document.getElementById("chat-input");
+  if (chatInput && C.ui.chatPlaceholder) chatInput.placeholder = C.ui.chatPlaceholder;
+}
+applyStaticCopy();
 
 // him starts in Boston, her in Tangerang — each at their real home
 const HOME_WORLD = { you: "boston", her: "tangerang" };
@@ -68,7 +92,7 @@ async function begin(role, outfit) {
       return;
     }
 
-    statusEl.textContent = "connecting…";
+    statusEl.textContent = C.login.connecting;
 
     let online = true;
     try {
@@ -78,9 +102,9 @@ async function begin(role, outfit) {
       online = false;
     }
 
-    statusEl.textContent = online ? "connected ❤" : "server offline — exploring solo";
+    statusEl.textContent = online ? C.login.connected : C.login.serverOffline;
     loginEl.style.display = "none";
-    UI.fadeIn("✈️ packing your bags…");
+    UI.fadeIn(C.system.packingBags);
 
     let game;
     try {
@@ -139,7 +163,7 @@ async function begin(role, outfit) {
     if (online) Net._emitPlayers(); // pick up a partner who was already in-world
 
     if (!online) {
-      UI.addSystem("offline mode — start the server and refresh to play together");
+      UI.addSystem(C.system.offlineMode);
     }
   }
 }

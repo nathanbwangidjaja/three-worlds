@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { WorldBuilder, rectPoly } from "./WorldBuilder.js";
 import { THEMES } from "./themes.js";
 import { STORY } from "./story.js";
+import { C, fmt } from "./copy.js";
 import { Avatar, randomNpcLook } from "./Avatar.js";
 import { Controls } from "./Controls.js";
 import { Effects } from "./Effects.js";
@@ -40,7 +41,7 @@ const SEAMS = {
     dir: [0.4413, 0.8973], cone: 0.984, extend: 280, // drive past the map edge along the corridor
     gate: [1182.5, 2351.6], gateR: 42,               // where this world hands the wheel over
     entryRy: -1.817,                                  // heading when you arrive here from the other side
-    label: "🛣️ Jalan Raya Legok–Karawaci · through Kelapa Dua → Gading Serpong…",
+    label: C.corridor.tangerang,
     walkPoint: [605, 2300],
   },
   serpong: {
@@ -48,7 +49,7 @@ const SEAMS = {
     dir: [-0.4413, -0.8973], cone: 0.984, extend: 180,
     gate: [-388.6, -955.7], gateR: 38,
     entryRy: -0.37,
-    label: "🛣️ Jalan Scientia Boulevard · north past Kelapa Dua → Lippo Village…",
+    label: C.corridor.serpong,
     walkPoint: [-358, -690],
   },
 };
@@ -292,8 +293,8 @@ export class Game {
       if (e.code === "KeyM") {
         if (this.world?.isInterior) {
           UI.addSystem(this.worldKey?.startsWith("c:")
-            ? "head outside first 😄 — the world can wait"
-            : "finish dinner first 😄 — the world can wait");
+            ? C.system.travelBlockedCampus
+            : C.system.travelBlockedDinner);
         } else {
           UI.openTravel(this.worldKey, (to) => this.travel(to));
         }
@@ -370,13 +371,13 @@ export class Game {
 
   async travel(to) {
     if (to === this.worldKey) return;
-    UI.fadeIn(`✈️ flying to ${THEMES[to].title}…`);
+    UI.fadeIn(fmt(C.system.flyingTo, { city: THEMES[to].title }));
     await new Promise((r) => setTimeout(r, 750));
     try {
       await this.loadWorld(to);
     } catch (err) {
       console.error("[game] travel failed:", err);
-      UI.fadeIn(`💔 couldn't load ${THEMES[to].title} — ${String(err.message || err)}`);
+      UI.fadeIn(fmt(C.system.loadFailed, { city: THEMES[to].title, error: String(err.message || err) }));
       setTimeout(() => UI.fadeOut(), 4000);
       return;
     }
@@ -516,17 +517,17 @@ export class Game {
   // GPS destinations per city — first one is the default
   _minimapDests(key) {
     if (key === "tangerang") return [
-      { x: SEAMS.tangerang.gate[0], z: SEAMS.tangerang.gate[1], label: "her café ☕ · via Jl. Raya Legok" },
-      { x: this.homePos?.x ?? 2, z: this.homePos?.z ?? 44, label: "her home 🏡" },
+      { x: SEAMS.tangerang.gate[0], z: SEAMS.tangerang.gate[1], label: C.minimap.tangerangCafe },
+      { x: this.homePos?.x ?? 2, z: this.homePos?.z ?? 44, label: C.minimap.tangerangHome },
       null,
     ];
     if (key === "serpong") return [
-      { x: 20, z: -38.6, label: "her café ☕" },
-      { x: SEAMS.serpong.gate[0], z: SEAMS.serpong.gate[1], label: "Lippo Village 🛣️ · via Scientia Blvd" },
+      { x: 20, z: -38.6, label: C.minimap.serpongCafe },
+      { x: SEAMS.serpong.gate[0], z: SEAMS.serpong.gate[1], label: C.minimap.serpongHome },
       null,
     ];
     if (key === "paris" && this.towerCenter) return [
-      { x: this.towerCenter.x, z: this.towerCenter.z, label: "the tower 🗼" },
+      { x: this.towerCenter.x, z: this.towerCenter.z, label: C.minimap.parisTower },
       null,
     ];
     return [null];
@@ -596,7 +597,7 @@ export class Game {
         x: this.towerCenter.x + CHAMP_AXIS.x * plaqueD,
         z: this.towerCenter.z + CHAMP_AXIS.z * plaqueD,
         range: 8,
-        prompt: "press E · read the plaque 🗼",
+        prompt: C.prompts.plaque,
         onInteract: () => UI.showDialog(STORY.eiffel.speaker, STORY.eiffel.pages),
       });
 
@@ -609,7 +610,7 @@ export class Game {
         this.interactables.push({
           x: liftX, z: liftZ,
           range: 7,
-          prompt: "press E · ride to the summit 🛗",
+          prompt: C.prompts.summitLift,
           onInteract: () => this.enterSummit(),
         });
       }
@@ -622,7 +623,7 @@ export class Game {
       addExtra(bench);
       this.interactables.push({
         x: bcx, z: bcz, range: 3.2,
-        prompt: "press E · sit a while 🪑",
+        prompt: C.prompts.bench,
         onInteract: () => UI.showDialog(STORY.bench.speaker, STORY.bench.pages),
       });
 
@@ -650,7 +651,7 @@ export class Game {
           addExtra(buildBeacon(door.x, door.z, "🎓", 0x8fd0ff, 28));
           this.interactables.push({
             x: door.x, z: door.z, range: 5,
-            prompt: `press E · visit ${CAMPUSES[ck].name} 🎓`,
+            prompt: fmt(C.prompts.campus, { school: CAMPUSES[ck].name }),
             onInteract: () => this.enterCampus(ck),
           });
         }
@@ -661,7 +662,7 @@ export class Game {
         addExtra(buildBeacon(sgx, sgz, "☕", 0xffd27a, 34));
         this.interactables.push({
           x: sgx, z: sgz, range: 8,
-          prompt: "press E · catch a ride to Gading Serpong ☕ (or keep driving the road!)",
+          prompt: C.prompts.rideToSerpong,
           onInteract: () => this.travel("serpong"),
         });
 
@@ -686,7 +687,7 @@ export class Game {
       addExtra(marker);
       this.interactables.push({
         x: hx, z: hz, range: 4,
-        prompt: "press E · 💌",
+        prompt: C.prompts.loveNote,
         onInteract: () => UI.showDialog(home.speaker, home.pages),
       });
     }
@@ -695,15 +696,11 @@ export class Game {
     if (key === "serpong") {
       const [mx, mz] = this.world.findClearSpot(27, -32, 3);
       this.homePos = { x: mx, z: mz };
-      addExtra(buildHomeMarker(mx, mz, "her café ☕"));
+      addExtra(buildHomeMarker(mx, mz, C.love.cafeMarkerSpeaker));
       this.interactables.push({
         x: mx, z: mz, range: 4,
-        prompt: "press E · 💌",
-        onInteract: () => UI.showDialog("her café ☕", [
-          "this exact corner of CARS LAND — she just signed for it 💕",
-          "one day soon: her own café, right here in Gading Serpong.",
-          "the door with the glowing sign already works — go have a coffee inside ☕",
-        ]),
+        prompt: C.prompts.loveNote,
+        onInteract: () => UI.showDialog(C.love.cafeMarkerSpeaker, C.love.cafeMarkerPages),
       });
       // parking apron in front of her row, like the Street View: bays + MPVs
       // (kept clear of the north-south lane at x≈45 — the rail used to
@@ -731,7 +728,7 @@ export class Game {
       addExtra(buildBeacon(ggx, ggz, "🛣️", 0xffd27a, 32));
       this.interactables.push({
         x: ggx, z: ggz, range: 8,
-        prompt: "press E · catch a ride home to Lippo Village 🛣️ (or drive the boulevard!)",
+        prompt: C.prompts.rideHome,
         onInteract: () => this.travel("tangerang"),
       });
     }
@@ -741,7 +738,7 @@ export class Game {
       for (const b of this.world.benchSpots) {
         this.interactables.push({
           x: b.x, z: b.z, range: 2.2,
-          prompt: "press E · sit together 🪑",
+          prompt: C.prompts.benchTogether,
           onInteract: () => this.sitOnBench(b),
         });
       }
@@ -754,14 +751,14 @@ export class Game {
         if (key === "serpong" && door.poi.n === "Her Café") {
           this.interactables.push({
             x: door.x, z: door.z, range: 3.2,
-            prompt: "press E · step into HER café ☕💛",
+            prompt: C.prompts.enterHerCafe,
             onInteract: () => this.enterCafe(door),
           });
           continue;
         }
         this.interactables.push({
           x: door.x, z: door.z, range: 2.8,
-          prompt: `press E · dine at ${door.poi.n} 🍽`,
+          prompt: fmt(C.prompts.dine, { restaurant: door.poi.n }),
           onInteract: () => this.enterRestaurant(door),
         });
       }
@@ -772,26 +769,7 @@ export class Game {
 
     // --- a local who tells you where everything is ---
     if (!this.world.isPhotoreal) {
-      const guideDefs = {
-        boston: { name: "Sam", pages: [
-          "welcome to Kendall Square 💙 every glowing restaurant sign is a real place — walk to its door and press E for a dinner date.",
-          "see a car you like? walk up to ANY parked car and press E to drive it. W/S is gas and brake, A/D steers — and your favorite person can hop in beside you 🚗",
-          "press M whenever you want to fly to Paris or Tangerang ✈️ — no airport queues here.",
-        ] },
-        tangerang: { name: "Maya", pages: [
-          "selamat datang di Lippo Village 🩷 the white gatehouse on the avenue is Taman Beverly — her home is just inside.",
-          "any parked car can be driven: stand next to one and press E. take the Alphard, it's very Tangerang 😄 one of you drives, the other rides along — press R in the car for YOUR playlist 📻",
-          "want her café? just DRIVE there — follow the blue line on the minimap down Jl. Raya Legok–Karawaci and the road rolls straight into Gading Serpong ☕ no teleporting.",
-          "follow a 🎓 beam to visit her schools — SPH Lippo Village is south past the golf course, UPH is east by the big towers. you can walk every floor.",
-          "drive north and you'll hit the Jakarta–Merak toll road, gerbang tol and all 🛣️ — and press M any time to fly to Boston or Paris ✈️",
-        ] },
-        paris: { name: "Léa", pages: [
-          "bienvenue à Paris 💛 see the golden beam at the tower's foot? that's the summit lift — press E there and ride up 276 meters.",
-          "the plaque, the green benches on the Champ de Mars, the cafés — anything glowing can be pressed with E. you can even sit together and watch the tower.",
-          "fancy a drive along the Seine? any parked car starts with E — the Mini is very Paris 😉",
-        ] },
-      };
-      const def = guideDefs[key];
+      const def = C.guides[key];
       if (def) {
         const sp = this._spawnPoint(key);
         const [gx, gz] = this.world.findClearSpot(sp[0] + 6, sp[1] - 4, 2);
@@ -814,7 +792,7 @@ export class Game {
         addExtra(buildBeacon(gx, gz, "🧭", 0x8fd0ff, 13));
         this.interactables.push({
           x: gx, z: gz, range: 3.4,
-          prompt: `press E · ask ${def.name} what's around 🧭`,
+          prompt: fmt(C.prompts.askGuide, { name: def.name }),
           onInteract: () => UI.showDialog(`🧭 ${def.name}`, def.pages),
         });
       }
@@ -824,7 +802,7 @@ export class Game {
   // --------------------------------------------------------------- summit
   async enterSummit() {
     const tc = this.towerCenter;
-    UI.fadeIn("🛗 going up… 276 meters");
+    UI.fadeIn(C.system.summitGoingUp);
     await new Promise((r) => setTimeout(r, 900));
     this.summit = true;
     this.controls.pos.set(tc.x + 1.6, 0, tc.z + 1.6);
@@ -833,8 +811,8 @@ export class Game {
     this.controls.dist = 9;
     this.camera.position.set(tc.x + 6, 283, tc.z + 6);
     UI.addSystem(this.role === "you"
-      ? "the whole city, just for you two ✨ — press Y for a little surprise 🎆 · E to ride down"
-      : "the whole city, just for you two ✨ — press E to ride back down");
+      ? C.anniversary.summitHim
+      : C.anniversary.summitHer);
     UI.fadeOut();
   }
 
@@ -857,14 +835,14 @@ export class Game {
     this.controls.yaw = Math.atan2(px - textCenter.x, pz - textCenter.z);
     this.controls.pitch = 0.04;
     // (no text banner — the fireworks themselves spell it out 🎆)
-    UI.setBanner("look up, my love 💕");
+    UI.setBanner(C.anniversary.lookUpBanner);
     setTimeout(() => UI.setBanner(null), 6000);
     if (broadcast) Net.sendEvent("anniv", { world: "paris" });
   }
 
   async exitSummit() {
     const tc = this.towerCenter;
-    UI.fadeIn("🛗 coming back down…");
+    UI.fadeIn(C.system.summitComingDown);
     await new Promise((r) => setTimeout(r, 700));
     this.summit = false;
     const [x, z] = this.world.findClearSpot(tc.x + CHAMP_AXIS.x * 45, tc.z + CHAMP_AXIS.z * 45, 3);
@@ -888,7 +866,7 @@ export class Game {
     this.controls.yaw = b.ry + Math.PI;
     this.controls.pitch = 0.22;
     this.controls.dist = 5.5;
-    UI.addSystem("just the two of you and the view 🌙 — press E to stand up");
+    UI.addSystem(C.system.benchSitting);
   }
 
   standUp() {
@@ -928,8 +906,8 @@ export class Game {
     this.controls.dist = 10;
     if (!car.spec.openTop) this.avatar.group.visible = false;
     UI.addSystem(seat === "driver"
-      ? `🚗 ${car.spec.name} — W/S gas & brake, A/D steer, E to park · R radio 📻`
-      : `💕 riding along in the ${car.spec.name} — R for the radio, E to hop out`);
+      ? fmt(C.system.carDriver, { car: car.spec.name })
+      : fmt(C.system.carPassenger, { car: car.spec.name }));
     this.radio.worldKey = this.worldKey;
     this.radio.show(seat === "driver");
     Net.sendEvent("car", {
@@ -944,7 +922,7 @@ export class Game {
     const d = this.drive;
     if (!d) return;
     if (d.seat === "driver" && Math.abs(d.speed) > 2.5 && !silent) {
-      UI.addSystem("slow down a little first 😅");
+      UI.addSystem(C.system.slowDownToExit);
       return;
     }
     this.drive = null;
@@ -1203,7 +1181,7 @@ export class Game {
       console.error("[seam] crossing failed:", err);
       this._carryCar = null;
       this.radio.hide();
-      UI.fadeIn(`💔 the road back seems closed — ${String(err.message || err)}`);
+      UI.fadeIn(fmt(C.system.roadBackClosed, { error: String(err.message || err) }));
       setTimeout(() => UI.fadeOut(), 4000);
       this._seaming = false;
       return;
@@ -1219,7 +1197,7 @@ export class Game {
     this.drive = null;
     this.avatar.group.visible = true;
     this._autoRide = true; // the radio rides along too
-    UI.fadeIn(SEAMS[this.worldKey]?.label ?? "🛣️ riding along…");
+    UI.fadeIn(SEAMS[this.worldKey]?.label ?? C.system.ridingAlong);
     await new Promise((r) => setTimeout(r, 500));
     try {
       await this.loadWorld(to);
@@ -1235,7 +1213,7 @@ export class Game {
   async enterRestaurant(door) {
     const city = this.worldKey;
     this.returnSpot = { city, x: door.x, z: door.z };
-    UI.fadeIn(`🍽 stepping into ${door.poi.n}…`);
+    UI.fadeIn(fmt(C.system.enteringRestaurant, { restaurant: door.poi.n }));
     await new Promise((r) => setTimeout(r, 650));
 
     this.effects.clear();
@@ -1265,7 +1243,7 @@ export class Game {
       this.world = null;
       await this.loadWorld(city);
       UI.fadeOut();
-      UI.addSystem(`hmm, ${door.poi.n} seems closed tonight 😅`);
+      UI.addSystem(fmt(C.system.restaurantClosed, { restaurant: door.poi.n }));
       return;
     }
 
@@ -1293,7 +1271,7 @@ export class Game {
     const city = this.worldKey;
     const cfg = CAMPUSES[key];
     this.returnSpot = { city, ...this.campusDoors?.[key] };
-    UI.fadeIn(`🎓 walking into ${cfg.name}…`);
+    UI.fadeIn(fmt(C.system.enteringCampus, { school: cfg.name }));
     await new Promise((r) => setTimeout(r, 650));
 
     if (this.drive) { this.drive.speed = 0; this.exitCar(); }
@@ -1324,7 +1302,7 @@ export class Game {
       this.world = null;
       await this.loadWorld(city);
       UI.fadeOut();
-      UI.addSystem(`hmm, ${cfg.name} seems closed today 😅`);
+      UI.addSystem(fmt(C.system.campusClosed, { school: cfg.name }));
       return;
     }
 
@@ -1349,7 +1327,7 @@ export class Game {
     const back = this.returnSpot;
     this.seatedAt = null;
     this.controls.enabled = true;
-    UI.fadeIn("🌴 back out into the heat…");
+    UI.fadeIn(C.system.backOutsideHeat);
     await new Promise((r) => setTimeout(r, 600));
     await this.loadWorld(back.city);
     const [x, z] = this.world.findClearSpot(back.x ?? 0, back.z ?? 0, 3);
@@ -1362,7 +1340,7 @@ export class Game {
   async enterCafe(door) {
     const city = this.worldKey;
     this.returnSpot = { city, x: door.x, z: door.z };
-    UI.fadeIn("☕ tying on the aprons…");
+    UI.fadeIn(C.system.tyingAprons);
     await new Promise((r) => setTimeout(r, 650));
 
     if (this.drive) { this.drive.speed = 0; this.exitCar(); }
@@ -1393,7 +1371,7 @@ export class Game {
       this.world = null;
       await this.loadWorld(city);
       UI.fadeOut();
-      UI.addSystem("hmm, the café's shutters are stuck 😅 try again in a moment");
+      UI.addSystem(C.system.cafeStuck);
       return;
     }
 
@@ -1418,7 +1396,7 @@ export class Game {
     const back = this.returnSpot;
     this.seatedAt = null;
     this.controls.enabled = true;
-    UI.fadeIn("🌤 flipping the sign to CLOSED for now…");
+    UI.fadeIn(C.system.cafeClosingSign);
     await new Promise((r) => setTimeout(r, 600));
     await this.loadWorld(back.city);
     const [x, z] = this.world.findClearSpot(back.x ?? 0, back.z ?? 0, 3);
@@ -1431,7 +1409,7 @@ export class Game {
     const back = this.returnSpot;
     this.seatedAt = null;
     this.controls.enabled = true;
-    UI.fadeIn("🌙 back out into the evening…");
+    UI.fadeIn(C.system.backOutsideEvening);
     await new Promise((r) => setTimeout(r, 600));
     await this.loadWorld(back.city);
     const [x, z] = this.world.findClearSpot(back.x, back.z, 3);
@@ -1669,14 +1647,14 @@ export class Game {
     let prompt = null;
     if (this.drive) {
       prompt = this.drive.seat === "passenger"
-        ? "press E · hop out 💕"
-        : Math.abs(this.drive.speed) < 2.5 ? "press E · park & step out 🚗" : null;
+        ? C.prompts.hopOut
+        : Math.abs(this.drive.speed) < 2.5 ? C.prompts.parkCar : null;
     } else if (this.world.isInterior) {
       prompt = this.world.prompt(p);
     } else if (this.seatedAt?.bench) {
-      prompt = "press E · stand up 🌙";
+      prompt = C.prompts.standUp;
     } else if (this.summit) {
-      prompt = "press E · ride back down 🛗";
+      prompt = C.prompts.rideDown;
     }
     if (!this.drive) {
       for (const it of this.interactables) {
@@ -1689,8 +1667,8 @@ export class Game {
           const partnerDriving = this.remoteCarState?.on &&
             this.remoteCarState.seat === "driver" && this.remoteCarState.i === spot.index &&
             this.remoteCarState.world === this.worldKey;
-          if (partnerDriving) prompt = `press E · hop in with ${this.remote?.name ?? "them"} 💕`;
-          else if (!spot.taken) prompt = `press E · drive the ${modelParts(spot.model).spec.name} 🚗`;
+          if (partnerDriving) prompt = fmt(C.prompts.hopIn, { name: this.remote?.name ?? "them" });
+          else if (!spot.taken) prompt = fmt(C.prompts.driveCar, { car: modelParts(spot.model).spec.name });
         }
       }
     }

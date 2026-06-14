@@ -4,6 +4,7 @@
 // it reads beautifully from the summit and from the ground, and so the
 // partner sees the same show over the wire.
 import * as THREE from "three";
+import { C } from "./copy.js";
 
 const TWO_PI = Math.PI * 2;
 
@@ -74,7 +75,7 @@ export class AnniversaryShow {
   // regions; each region's shell bursts in turn and its sparks fly out then
   // home into the letter shapes, then glow and twinkle like settling embers.
   _buildText() {
-    const { pts, aspect } = sampleText(["HAPPY 5TH", "ANNIVERSARY"]);
+    const { pts, aspect } = sampleText([C.anniversary.fireworksLine1, C.anniversary.fireworksLine2]);
     const TW = 150;                 // text width in metres
     const N = pts.length;
     const positions = new Float32Array(N * 3);

@@ -1,0 +1,315 @@
+{
+  "_readme": "❤ THIS IS THE ONLY FILE YOU NEED TO EDIT TO CHANGE THE WORDS ❤  Every sentence the game shows you (love notes, signs, system messages, the fireworks text, everything) lives here. Change the text inside the \"quotes\", keep the quotes and commas, save, and the game updates (run `npm run dev`, or push to redeploy). Bits in {curly braces} like {name} get filled in automatically — leave them as-is. \\n means a line break. Don't rename the keys on the left, only edit the words on the right.",
+
+  "love": {
+    "homeHisLabel": "Nathan's home",
+    "homeHisSpeaker": "Cambridge, Boston",
+    "homeHisPages": [
+      "I wanted to show a quick glimpse of my day to day. Although it may not be the perfect replica, I hope this gives you a taste"
+    ],
+    "homeHerLabel": "Angel's home",
+    "homeHerSpeaker": "Tangerang",
+    "homeHerPages": [
+      "I tried my best to replicate your home but I think agak salah deh hehe but I hope you like it"
+    ],
+
+    "eiffelSpeaker": "🗼 Eiffel Tower",
+    "eiffelPages": [
+      "I know you said one of your bucket lists is to go on a little trip together in Europe. \n\n",
+      "Next time let's both go to Europe together just like what you wanted in your bucket list hehe",
+      "I wish I could be there in person with you to celebrate this day but connecting here virtually is a good compromise too :D"
+    ],
+
+    "benchSpeaker": "A bench on the Champ de Mars",
+    "benchPages": [
+      "Here's a seat for you. We can enjoy a little bit of the view here"
+    ],
+
+    "cafeMarkerSpeaker": "moeve ☕",
+    "cafeMarkerPages": [
+      "I tried to find the location of the cafe that you just signed for.",
+      "I know one day you will own a cafe and you're already working really hard for it.",
+      "I wanted to drive you here everyday maybe I could be the boyfriend that brings you to work everytime. \n",
+      "Regardless, I'm very proud of everything that you've done so far especially with the cafe.",
+      "It takes a lot of effort, patience, and ambition to be able to do this. I don't think I would be able to do this myself.\n",
+      "But I hope you know that no matter what happens, I will always be here for you and support you in everything that you do."
+    ],
+
+    "togetherBanner": "We made it here, look up!"
+  },
+
+  "anniversary": {
+    "fireworksLine1": "HAPPY 5TH",
+    "fireworksLine2": "ANNIVERSARY",
+    "lookUpBanner": "Look up sai 💕",
+    "summitHim": "surprise surprise when you press Y · E to ride down",
+    "summitHer": "surprise surprise  ✨ — press E to ride back down"
+  },
+
+  "tableTalk": [
+    "What's a tiny moment with me you think about more than you've admitted?",
+    "If we could teleport anywhere right now for 24 hours, where are we going?",
+    "What did you think the first time you saw me — honestly?",
+    "What's something you want us to be doing in five years?",
+    "Which of my habits secretly makes you smile?",
+    "What's a fear you've never said out loud?",
+    "When did you know this was different from anything before?",
+    "What's the best meal we've ever had together — and why was it the company?",
+    "If our relationship had a theme song, what would it be?",
+    "What's one thing you wish we did more often?",
+    "What part of your day do you most wish I was there for?",
+    "What's something hard from your past that made you who you are?",
+    "Where do you feel most at home — place, person, or moment?",
+    "What's a dream you shelved that you'd pick back up if nothing could fail?",
+    "What do you hope never changes about us?",
+    "What's the most spontaneous thing you want us to do together?",
+    "Which trip should be our next one, and what's the first thing we do there?",
+    "What's a compliment you've never forgotten?",
+    "What do you think our hardest year so far taught us?",
+    "If we opened a tiny shop together, what would we sell?",
+    "What's your favorite photo of us, and what was happening right before it?",
+    "What's something you're proud of that you don't talk about enough?",
+    "How do you want to be loved on your worst days?",
+    "What's a question you've been wanting to ask me?",
+    "What would a perfect lazy Sunday with me look like?",
+    "What's one way I've changed you?",
+    "If we wrote a book about us, what would this chapter be called?",
+    "What are you most excited to show me in your city someday?",
+    "What's the smallest thing I do that makes you feel safe?",
+    "When distance feels heavy, what helps you most?",
+    "What tradition should we start, just the two of us?",
+    "What's something silly you'd never do in front of anyone but me?",
+    "What's your favorite thing I've ever said to you?",
+    "If tonight never had to end, what would we do next?",
+    "What are you grateful for about us, right now, at this table?",
+    "Describe our future kitchen. What's cooking and who's cooking it?"
+  ],
+
+  "cities": {
+    "boston":    { "title": "Cambridge, Boston", "subtitle": "Nathan's shelter · 4:30 pm, golden hour" },
+    "tangerang": { "title": "Tangerang",         "subtitle": "Angel's home · sunset, after the rain" },
+    "serpong":   { "title": "Gading Serpong",    "subtitle": "moeve cafe · the new chapter ☕" },
+    "paris":     { "title": "Paris",             "subtitle": "The city of love lol · midnight by the tower" }
+  },
+
+  "travel": {
+    "toTangerang":    "🏝 Fly to Angel's home — Tangerang",
+    "toTangerangBack":"🏝 Back to Tangerang",
+    "toTangerangHome":"🏝 Drive home — Lippo Village",
+    "toBoston":       "🍂 Fly to him — Boston",
+    "toBostonBack":   "🍂 Back to Boston",
+    "toParis":        "🗼 Meet in Paris",
+    "toSerpong":      "☕ Drive to moeve café — Gading Serpong",
+    "toSerpongBack":  "☕ To moeve café — Gading Serpong"
+  },
+
+  "guides": {
+    "boston": {
+      "name": "Sam",
+      "pages": [
+        "This is Kendall Square, where Nathan lives and goes to school. Walk to the doors and press E for a dinner date.",
+        "see a car you like? walk up to ANY parked car and press E to drive it. W/S is gas and brake, A/D steers — and I can hop in beside you 🚗",
+        "press M whenever you want to fly to Paris or Tangerang ✈️ — no airport queues here."
+      ]
+    },
+    "tangerang": {
+      "name": "Maya",
+      "pages": [
+        "selamat datang di Lippo Village 🩷 the white gatehouse on the avenue is Taman Beverly — her home is just inside.",
+        "Welcome to Lippo Village! I don't think I modeled your complex well enough but I tried HAHAHAHA.",
+        "any parked car can be driven: stand next to one and press E. take the Alphard, it's very Tangerang and I know you can't drive it in real life so here it is virtually 😄 one of you drives, the other rides along —e press R in the car for songs that you like 📻",
+        "Follow the blue line on the minimap to go to your cafe!",
+        "You can also visit schools but its not currently that well made. You can walk to different floors there as well.",
+        "Drive north and you'll hit the Jakarta–Merak toll road, gerbang tol and all 🛣️ — and press M any time to fly to Boston or Paris ✈️"
+      ]
+    },
+    "paris": {
+      "name": "Léa",
+      "pages": [
+        "Welcome to Paris! Baguette baguette and croissant everywhere 🥐 — press E there and ride up 276 meters.",
+        "The plague, the green benches on the Champ de Mars, the cafés — anything glowing can be pressed with E. you can even sit together and watch the tower."
+      ]
+    }
+  },
+
+  "prompts": {
+    "plaque": "press E · read the plaque 🗼",
+    "summitLift": "press E · ride to the summit 🛗",
+    "bench": "press E · sit a while 🪑",
+    "benchTogether": "press E · sit together 🪑",
+    "standUp": "press E · stand up 🌙",
+    "rideDown": "press E · ride back down 🛗",
+    "campus": "press E · visit {school} 🎓",
+    "rideToSerpong": "press E · catch a ride to Gading Serpong ☕ (or keep driving the road!)",
+    "rideHome": "press E · catch a ride home to Lippo Village 🛣️ (or drive the boulevard!)",
+    "loveNote": "press E · 💌",
+    "enterHerCafe": "press E · step into HER café ☕💛",
+    "dine": "press E · dine at {restaurant} 🍽",
+    "askGuide": "press E · ask {name} what's around 🧭",
+    "driveCar": "press E · drive the {car} 🚗",
+    "hopIn": "press E · hop in with {name} 💕",
+    "hopOut": "press E · hop out 💕",
+    "parkCar": "press E · park & step out 🚗"
+  },
+
+  "campus": {
+    "promptStairs": "press E · stairs to {floor} 🪜",
+    "promptHeadOutside": "press E · head back outside 🌴"
+  },
+
+  "system": {
+    "flyingTo": "✈️ flying to {city}…",
+    "loadFailed": "💔 couldn't load {city} — {error}",
+    "packingBags": "✈️ packing your bags…",
+    "summitGoingUp": "🛗 going up… 276 meters",
+    "summitComingDown": "🛗 coming back down…",
+    "benchSitting": "just the two of you and the view 🌙 — press E to stand up",
+    "slowDownToExit": "slow down a little first 😅",
+    "roadBackClosed": "💔 the road back seems closed — {error}",
+    "ridingAlong": "🛣️ riding along…",
+    "enteringRestaurant": "🍽 stepping into {restaurant}…",
+    "restaurantClosed": "hmm, {restaurant} seems closed tonight 😅",
+    "enteringCampus": "🎓 walking into {school}…",
+    "campusClosed": "hmm, {school} seems closed today 😅",
+    "backOutsideHeat": "🌴 back out into the heat…",
+    "tyingAprons": "☕ tying on the aprons…",
+    "cafeStuck": "hmm, the café's shutters are stuck 😅 try again in a moment",
+    "cafeClosingSign": "🌤 flipping the sign to CLOSED for now…",
+    "backOutsideEvening": "🌙 back out into the evening…",
+    "partnerJoined": "💌 {name} just stepped into the world",
+    "partnerLeft": "{name} left — the world feels quieter",
+    "partnerWorld": "{name} is in {city}",
+    "offlineMode": "offline mode — start the server and refresh to play together",
+    "carDriver": "🚗 {car} — W/S gas & brake, A/D steer, E to park · R radio 📻",
+    "carPassenger": "💕 riding along in the {car} — R for the radio, E to hop out",
+    "travelBlockedCampus": "head outside first 😄 — the world can wait",
+    "travelBlockedDinner": "finish dinner first 😄 — the world can wait"
+  },
+
+  "minimap": {
+    "tangerangCafe": "her café ☕ · via Jl. Raya Legok",
+    "tangerangHome": "her home 🏡",
+    "serpongCafe": "her café ☕",
+    "serpongHome": "Lippo Village 🛣️ · via Scientia Blvd",
+    "parisTower": "the tower 🗼"
+  },
+
+  "corridor": {
+    "tangerang": "🛣️ Jalan Raya Legok–Karawaci · through Kelapa Dua → Gading Serpong…",
+    "serpong": "🛣️ Jalan Scientia Boulevard · north past Kelapa Dua → Lippo Village…"
+  },
+
+  "cafe": {
+    "openMessage": "moeve is open ☕ — customers will start coming in. take orders at the register (E), make them in the kitchen, run them out 💛",
+    "firstRushBanner": "moeve's first little rush — she's a natural 💛",
+    "noFreeTables": "no free tables — run some food out first 😅",
+    "nobodyOrderedThat": "hmm, nobody here ordered that — check the tickets up top 🤔",
+    "itemReady": "{item} ready — run it to the table! 🏃",
+    "steppedAway": "stepped away — the {item} can wait",
+    "loadProgress": {
+      "open": "turning the sign to OPEN",
+      "stocking": "stocking the pastry case",
+      "ready": "open for business"
+    },
+    "prepLabels": {
+      "case": "plating from the case 🥐",
+      "warm": "warming in the oven ♨️",
+      "drink": "whisking the matcha 🍵"
+    },
+    "stations": {
+      "case": "pastry case",
+      "warm": "oven",
+      "drink": "matcha bar",
+      "pass": "prep counter"
+    },
+    "customerCompliments": [
+      "this is SO good 😭",
+      "best matcha in Serpong, easily",
+      "I'm coming back tomorrow",
+      "the ensaymada... incredible",
+      "okay this place is special",
+      "tell the owner she's amazing",
+      "worth the drive from Karawaci",
+      "my new favorite café 💚"
+    ],
+    "customerOrder": "{items}, please! 😊",
+    "customerEating": ["yum!! 🤩", "ooh that's pretty", "thank youuu", "finally 😍"],
+    "customerPaying": "Rp {amt}.000 💵 — {line}",
+    "carryingTo": "carrying: {item} → find their table 🏃",
+    "serveCustomer": "press E · serve {name} their {item} 💛",
+    "makeItem": "press E · make the {item} ({station})",
+    "promptSetDown": "press E · set it down",
+    "promptTakeOrder": "press E · take {name}'s order 📝",
+    "registerIdle": "the register — customers will line up here ☕",
+    "stationIdle": "{station} — nothing needed here right now",
+    "promptStepOut": "press E · step back out to GS 🌤",
+    "setItDownShared": "set it down — your love can grab it too",
+    "noTimeForCards": "no time for cards — there are customers! 😄☕",
+    "menu": {
+      "classic-matcha": "iced matcha latte",
+      "earl-grey-matcha": "earl grey matcha",
+      "chamomile-matcha": "chamomile matcha",
+      "chali-matcha": "chali matcha",
+      "tongji-jasmine-matcha": "tongji jasmine matcha",
+      "corn-matcha": "corn matcha",
+      "croissant": "butter croissant",
+      "pain-choc": "pain au chocolat",
+      "egg-tart": "egg tart",
+      "pandan-chiffon": "pandan chiffon",
+      "banana-bread": "banana bread",
+      "ensaymada": "ensaymada",
+      "ube-pandesal": "ube cheese pandesal",
+      "cinnamon-roll": "cinnamon roll"
+    }
+  },
+
+  "restaurant": {
+    "hostGreeting": "Welcome to {restaurant}! Table for two? 💕",
+    "hostWillSeat": "{name} will seat you — press E near them to follow",
+    "hostRightThisWay": "Right this way! 🚶",
+    "hostBestSeat": "Here you are — best seat in the house ✨",
+    "followHost": "follow the host to your table",
+    "serverComing": "Your server will be right over 😊",
+    "serverWelcome": "Welcome in! What can I get you two tonight?",
+    "orderAllOfThat": "We'll have... all of that 😄",
+    "orderNamed": "We'll have the {names} please!",
+    "serverExcellent": "Excellent choice! Coming right up 📝",
+    "chefsOuiChef": "Oui chef! 🔥",
+    "serverBonAppetit": "Bon appétit! 🍽",
+    "drawCardHint": "press T to draw a conversation card 💬 — press E later for the bill",
+    "serverComeBack": "Merci! Come back soon you two 💛",
+    "dinnerOnYou": "dinner's on the two of you forever 💛 — head to the door when ready",
+    "loadProgress": {
+      "open": "opening the door",
+      "tables": "setting the tables",
+      "candles": "lighting the candles"
+    },
+    "promptTableForTwo": "press E · \"table for two, please\" 💕",
+    "promptTakeSeat": "press E · take your seat 🪑",
+    "promptAskBill": "press E · ask for the bill 💳",
+    "promptHeadOutside": "press E · head back outside 🌙",
+    "doorByFront": "the door is by the front 🌙"
+  },
+
+  "login": {
+    "hearts": "🌍 ❤️ 🗼",
+    "title": "Our Little World",
+    "subtitle": "Boston · Tangerang · Paris<br/>Two homes, one meeting place.",
+    "namePlaceholder": "your name",
+    "playAsHim": "Play as Him 💙",
+    "playAsHer": "Play as Her 🩷",
+    "outfitPrompt": "what are you wearing tonight?",
+    "outfitBack": "← back",
+    "connecting": "connecting…",
+    "connected": "connected ❤",
+    "serverOffline": "server offline — exploring solo"
+  },
+
+  "ui": {
+    "hint": "WASD move · Shift run · Space hop · drag mouse to look · Enter chat · M travel · E interact",
+    "dialogContinue": "space / click to continue",
+    "chatPlaceholder": "say something sweet… (Enter to send, Esc to close)",
+    "travelTitle": "✈️ Where should we go sai?",
+    "travelClose": "stay here (Esc)"
+  }
+}

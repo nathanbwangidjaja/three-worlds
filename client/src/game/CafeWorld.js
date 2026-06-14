@@ -12,6 +12,7 @@ import * as THREE from "three";
 import { Avatar, randomNpcLook } from "./Avatar.js";
 import { Net } from "../net.js";
 import * as UI from "./ui.js";
+import { C, fmt } from "./copy.js";
 
 function mulberry32(seed) {
   let a = seed >>> 0;
@@ -43,17 +44,15 @@ export const CAFE_MENU = {
   "ube-pandesal":   { label: "ube cheese pandesal", kind: "warm", color: 0x9a6fb8, price: 22 },
   "cinnamon-roll":  { label: "cinnamon roll",      kind: "warm", color: 0xb87a4a, price: 30 },
 };
+// menu item names are editable in copy.json (prices/colors stay here)
+for (const k in CAFE_MENU) { if (C.cafe.menu?.[k]) CAFE_MENU[k].label = C.cafe.menu[k]; }
 const DRINKS = Object.keys(CAFE_MENU).filter((k) => CAFE_MENU[k].kind === "drink");
 const BAKES = Object.keys(CAFE_MENU).filter((k) => CAFE_MENU[k].kind !== "drink");
 const PREP_TIME = { case: 1.2, warm: 2.6, drink: 2.8 };
-const PREP_LABEL = { case: "plating from the case 🥐", warm: "warming in the oven ♨️", drink: "whisking the matcha 🍵" };
+const PREP_LABEL = C.cafe.prepLabels;
 
 const CUSTOMER_NAMES = ["Putri", "Wira", "Sari", "Dewi", "Agus", "Rina", "Bayu", "Tika", "Andi", "Maya", "Eka", "Nadia", "Rafi", "Intan"];
-const COMPLIMENTS = [
-  "this is SO good 😭", "best matcha in Serpong, easily", "I'm coming back tomorrow",
-  "the ensaymada... incredible", "okay this place is special", "tell the owner she's amazing",
-  "worth the drive from Karawaci", "my new favorite café 💚",
-];
+const COMPLIMENTS = C.cafe.customerCompliments;
 
 export class CafeWorld {
   constructor(scene, poi, city, game) {
@@ -89,10 +88,10 @@ export class CafeWorld {
       { x: -1.6, z: 0.4 }, { x: -1.6, z: 1.7 }, { x: -1.6, z: 3.0 }, { x: -0.4, z: 4.2 },
     ];
     this.stations = {
-      case:  { x: -6.0, z: -3.3, label: "pastry case" },   // service side of the counter
-      warm:  { x: -7.0, z: -6.4, label: "oven" },
-      drink: { x: -2.5, z: -6.4, label: "matcha bar" },
-      pass:  { x: -4.6, z: -6.4, label: "prep counter" },
+      case:  { x: -6.0, z: -3.3, label: C.cafe.stations.case },   // service side of the counter
+      warm:  { x: -7.0, z: -6.4, label: C.cafe.stations.warm },
+      drink: { x: -2.5, z: -6.4, label: C.cafe.stations.drink },
+      pass:  { x: -4.6, z: -6.4, label: C.cafe.stations.pass },
     };
     this.tables = [
       { x: 3, z: -4 }, { x: 7.5, z: -4 }, { x: 3, z: -0.5 },
@@ -102,7 +101,7 @@ export class CafeWorld {
 
   // --------------------------------------------------------------- build
   async build(onProgress) {
-    onProgress?.(0.3, "turning the sign to OPEN");
+    onProgress?.(0.3, C.cafe.loadProgress.open);
     const { W, D } = this;
     const g = this.group;
 
@@ -133,7 +132,7 @@ export class CafeWorld {
     const door = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 3), new THREE.MeshLambertMaterial({ color: 0x4a5e46 }));
     door.position.set(0, 1.5, D / 2 - 0.05); door.rotation.y = Math.PI; g.add(door);
 
-    onProgress?.(0.5, "stocking the pastry case");
+    onProgress?.(0.5, C.cafe.loadProgress.stocking);
     this._buildCounter();
     this._buildKitchen();
     this._buildMenuBoard();
@@ -177,12 +176,12 @@ export class CafeWorld {
     }
 
     this.scene.add(this.group);
-    onProgress?.(1, "open for business");
+    onProgress?.(1, C.cafe.loadProgress.ready);
 
     // late joiner? ask the room for the current shift
     this._send({ a: "hello" });
     setTimeout(() => {
-      UI.addSystem("her café is open ☕ — customers will start coming in. take orders at the register (E), make them in the kitchen, run them out 💛");
+      UI.addSystem(C.cafe.openMessage);
     }, 800);
     return this;
   }
@@ -516,7 +515,7 @@ export class CafeWorld {
     const c = this._frontCustomer();
     if (!c) return;
     const free = this.tables.filter((t) => !t.taken);
-    if (!free.length) { UI.addSystem("no free tables — run some food out first 😅"); return; }
+    if (!free.length) { UI.addSystem(C.cafe.noFreeTables); return; }
     const items = this._makeOrder(c);
     const table = free[Math.floor(mulberry32(c.seed ^ 0x51ab)( ) * free.length)].i;
     const ev = { a: "order", cid: c.id, items, table };
@@ -532,7 +531,7 @@ export class CafeWorld {
     c.table = this.tables[tableIdx];
     c.table.taken = true;
     c.state = "toTable";
-    c.avatar.say(items.map((k) => CAFE_MENU[k].label).join(" + ") + ", please! 😊");
+    c.avatar.say(fmt(C.cafe.customerOrder, { items: items.map((k) => CAFE_MENU[k].label).join(" + ") }));
     c.path = [
       new THREE.Vector3(0.8, 0, 1.5),
       new THREE.Vector3(c.table.x, 0, c.table.z + 1.6),
@@ -614,7 +613,7 @@ export class CafeWorld {
     this.game.avatar.group.add(mesh);
     mesh.position.set(0.32, 0.95, 0.3);
     this._send({ a: "carry", item: p.item });
-    UI.addSystem(`${CAFE_MENU[p.item].label} ready — run it to the table! 🏃`);
+    UI.addSystem(fmt(C.cafe.itemReady, { item: CAFE_MENU[p.item].label }));
   }
 
   _cancelPrep() {
@@ -663,7 +662,7 @@ export class CafeWorld {
       this.apply(ev); this._send(ev);
       return;
     }
-    UI.addSystem("hmm, nobody here ordered that — check the tickets up top 🤔");
+    UI.addSystem(C.cafe.nobodyOrderedThat);
   }
 
   _applyDeliver(cid, item) {
@@ -677,7 +676,7 @@ export class CafeWorld {
     if (c.served.every(Boolean)) {
       c.state = "eating";
       c.t = 0;
-      c.avatar.say(["yum!! 🤩", "ooh that's pretty", "thank youuu", "finally 😍"][c.id % 4]);
+      c.avatar.say(C.cafe.customerEating[c.id % C.cafe.customerEating.length]);
     }
     this._updateHud();
   }
@@ -697,7 +696,7 @@ export class CafeWorld {
     this.earnings += amt;
     this.servedCount++;
     c.state = "leaving";
-    c.avatar.say(`Rp ${amt}.000 💵 — ${line}`);
+    c.avatar.say(fmt(C.cafe.customerPaying, { amt, line }));
     if (c.table) {
       for (const m of c.table.foods) this.group.remove(m);
       c.table.foods = [];
@@ -707,7 +706,7 @@ export class CafeWorld {
     c.avatar.group.position.y = 0;
     c.path = [new THREE.Vector3(0.8, 0, 3.4), new THREE.Vector3(this.door.x, 0, this.door.z)];
     this._updateHud();
-    if (this.servedCount === 5) UI.setBanner("her café's first little rush — she's a natural 💛");
+    if (this.servedCount === 5) UI.setBanner(C.cafe.firstRushBanner);
     if (this.servedCount === 6) setTimeout(() => UI.setBanner(null), 100);
   }
 
@@ -754,7 +753,7 @@ export class CafeWorld {
         }
       }
       // put it back at the prep counter
-      if (near(this.stations.pass.x, this.stations.pass.z, 2.0)) { this._putBack(); UI.addSystem("set it down — your love can grab it too"); return true; }
+      if (near(this.stations.pass.x, this.stations.pass.z, 2.0)) { this._putBack(); UI.addSystem(C.cafe.setItDownShared); return true; }
       return false;
     }
     // stations
@@ -781,30 +780,30 @@ export class CafeWorld {
         if (c.table && ["seated", "eating", "toTable"].includes(c.state) &&
             near(c.table.x, c.table.z, 2.6) &&
             c.order.some((k, i) => k === this.carrying.key && !c.served[i])) {
-          return `press E · serve ${c.name} their ${CAFE_MENU[this.carrying.key].label} 💛`;
+          return fmt(C.cafe.serveCustomer, { name: c.name, item: CAFE_MENU[this.carrying.key].label });
         }
       }
-      if (near(this.stations.pass.x, this.stations.pass.z, 2.0)) return "press E · set it down";
-      return `carrying: ${CAFE_MENU[this.carrying.key].label} → find their table 🏃`;
+      if (near(this.stations.pass.x, this.stations.pass.z, 2.0)) return C.cafe.promptSetDown;
+      return fmt(C.cafe.carryingTo, { item: CAFE_MENU[this.carrying.key].label });
     }
     if (near(this.register.x, this.register.z, 2.0)) {
       const c = this._frontCustomer();
-      return c ? `press E · take ${c.name}'s order 📝` : "the register — customers will line up here ☕";
+      return c ? fmt(C.cafe.promptTakeOrder, { name: c.name }) : C.cafe.registerIdle;
     }
     for (const [kind, s] of Object.entries(this.stations)) {
       if (kind === "pass") continue;
       if (near(s.x, s.z, 1.9)) {
         const need = this._neededAt(kind);
         return need
-          ? `press E · make the ${CAFE_MENU[need.key].label} (${s.label})`
-          : `${s.label} — nothing needed here right now`;
+          ? fmt(C.cafe.makeItem, { item: CAFE_MENU[need.key].label, station: s.label })
+          : fmt(C.cafe.stationIdle, { station: s.label });
       }
     }
-    if (near(this.door.x, this.door.z, 2.2)) return "press E · step back out to CARS LAND 🌤";
+    if (near(this.door.x, this.door.z, 2.2)) return C.cafe.promptStepOut;
     return null;
   }
 
-  drawTopic() { UI.addSystem("no time for cards — there are customers! 😄☕"); }
+  drawTopic() { UI.addSystem(C.cafe.noTimeForCards); }
   showTopicFromPartner() {}
 
   blocked(x, z) {
@@ -843,7 +842,7 @@ export class CafeWorld {
       const s = this.stations[this.prep.station];
       const p = this.game.controls.pos;
       if (Math.hypot(s.x - p.x, s.z - p.z) > 2.6) {
-        UI.addSystem("stepped away — the " + CAFE_MENU[this.prep.item].label + " can wait");
+        UI.addSystem(fmt(C.cafe.steppedAway, { item: CAFE_MENU[this.prep.item].label }));
         this._cancelPrep();
       } else {
         this.prep.until -= dt;
