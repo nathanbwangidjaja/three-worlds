@@ -41,7 +41,7 @@
   "anniversary": {
     "fireworksLine1": "HAPPY 5TH",
     "fireworksLine2": "ANNIVERSARY",
-    "lookUpBanner": "Look up sai 💕",
+    "lookUpBanner": "Look up sai",
     "summitHim": "surprise surprise when you press Y · E to ride down",
     "summitHer": "surprise surprise  ✨ — press E to ride back down"
   },
@@ -96,7 +96,7 @@
     "toTangerang":    "🏝 Fly to Angel's home — Tangerang",
     "toTangerangBack":"🏝 Back to Tangerang",
     "toTangerangHome":"🏝 Drive home — Lippo Village",
-    "toBoston":       "🍂 Fly to him — Boston",
+    "toBoston":       "🍂 Fly to Nathan's shelter — Boston",
     "toBostonBack":   "🍂 Back to Boston",
     "toParis":        "🗼 Meet in Paris",
     "toSerpong":      "☕ Drive to moeve café — Gading Serpong",
@@ -115,9 +115,8 @@
     "tangerang": {
       "name": "Maya",
       "pages": [
-        "selamat datang di Lippo Village 🩷 the white gatehouse on the avenue is Taman Beverly — her home is just inside.",
         "Welcome to Lippo Village! I don't think I modeled your complex well enough but I tried HAHAHAHA.",
-        "any parked car can be driven: stand next to one and press E. take the Alphard, it's very Tangerang and I know you can't drive it in real life so here it is virtually 😄 one of you drives, the other rides along —e press R in the car for songs that you like 📻",
+        "any parked car can be driven: stand next to one and press E. take the Alphard, it's very Tangerang and I know you can't drive it in real life so here it is virtually 😄 one of you drives, the other rides along — press R in the car for songs that you like 📻",
         "Follow the blue line on the minimap to go to your cafe!",
         "You can also visit schools but its not currently that well made. You can walk to different floors there as well.",
         "Drive north and you'll hit the Jakarta–Merak toll road, gerbang tol and all 🛣️ — and press M any time to fly to Boston or Paris ✈️"
@@ -143,7 +142,7 @@
     "rideToSerpong": "press E · catch a ride to Gading Serpong ☕ (or keep driving the road!)",
     "rideHome": "press E · catch a ride home to Lippo Village 🛣️ (or drive the boulevard!)",
     "loveNote": "press E · 💌",
-    "enterHerCafe": "press E · step into HER café ☕💛",
+    "enterHerCafe": "press E · step into moeve café ☕",
     "dine": "press E · dine at {restaurant} 🍽",
     "askGuide": "press E · ask {name} what's around 🧭",
     "driveCar": "press E · drive the {car} 🚗",
@@ -187,9 +186,9 @@
   },
 
   "minimap": {
-    "tangerangCafe": "her café ☕ · via Jl. Raya Legok",
-    "tangerangHome": "her home 🏡",
-    "serpongCafe": "her café ☕",
+    "tangerangCafe": "moeve café ☕ · via Jl. Raya Legok",
+    "tangerangHome": "Angel's home 🏡",
+    "serpongCafe": "moeve café ☕",
     "serpongHome": "Lippo Village 🛣️ · via Scientia Blvd",
     "parisTower": "the tower 🗼"
   },
@@ -201,9 +200,9 @@
 
   "cafe": {
     "openMessage": "moeve is open ☕ — customers will start coming in. take orders at the register (E), make them in the kitchen, run them out 💛",
-    "firstRushBanner": "moeve's first little rush — she's a natural 💛",
-    "noFreeTables": "no free tables — run some food out first 😅",
-    "nobodyOrderedThat": "hmm, nobody here ordered that — check the tickets up top 🤔",
+    "firstRushBanner": "moeve's first rush",
+    "noFreeTables": "no free tables — run some food out first",
+    "nobodyOrderedThat": "hmm, nobody here ordered that — check the tickets up top",
     "itemReady": "{item} ready — run it to the table! 🏃",
     "steppedAway": "stepped away — the {item} can wait",
     "loadProgress": {
@@ -233,10 +232,10 @@
       "my new favorite café 💚"
     ],
     "customerOrder": "{items}, please! 😊",
-    "customerEating": ["yum!! 🤩", "ooh that's pretty", "thank youuu", "finally 😍"],
+    "customerEating": ["yum!! 🤩", "ooh that's pretty", "thank youuu", "finally"],
     "customerPaying": "Rp {amt}.000 💵 — {line}",
     "carryingTo": "carrying: {item} → find their table 🏃",
-    "serveCustomer": "press E · serve {name} their {item} 💛",
+    "serveCustomer": "press E · serve {name} their {item}",
     "makeItem": "press E · make the {item} ({station})",
     "promptSetDown": "press E · set it down",
     "promptTakeOrder": "press E · take {name}'s order 📝",
@@ -264,7 +263,7 @@
   },
 
   "restaurant": {
-    "hostGreeting": "Welcome to {restaurant}! Table for two? 💕",
+    "hostGreeting": "Welcome to {restaurant}! Table for two?",
     "hostWillSeat": "{name} will seat you — press E near them to follow",
     "hostRightThisWay": "Right this way! 🚶",
     "hostBestSeat": "Here you are — best seat in the house ✨",
@@ -296,12 +295,12 @@
     "title": "Our Little World",
     "subtitle": "Boston · Tangerang · Paris<br/>Two homes, one meeting place.",
     "namePlaceholder": "your name",
-    "playAsHim": "Play as Him 💙",
-    "playAsHer": "Play as Her 🩷",
+    "playAsHim": "Play as the guy",
+    "playAsHer": "Play as the girl",
     "outfitPrompt": "what are you wearing tonight?",
     "outfitBack": "← back",
     "connecting": "connecting…",
-    "connected": "connected ❤",
+    "connected": "connected",
     "serverOffline": "server offline — exploring solo"
   },
 

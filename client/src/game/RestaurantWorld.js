@@ -43,6 +43,7 @@ export class RestaurantWorld {
     this.animated = [];
     this.npcs = [];
     this.isInterior = true;
+    this.isRestaurant = true;
     this.isPhotoreal = false;
 
     // room dims seeded by the restaurant
@@ -457,41 +458,100 @@ export class RestaurantWorld {
   }
 
   // ------------------------------------------------------ dining flow
+  // MULTIPLAYER: every state transition runs through apply() so BOTH clients
+  // advance in lockstep. A local action calls this._do(a, extra) which applies
+  // locally AND broadcasts a "dine" event; the partner's client receives it
+  // (Game.js "dine" handler) and calls this.apply(data). Timed follow-ups
+  // (server walking up, the cook timer, the bill arriving) are owned by a
+  // single leader so they fire once, then broadcast their result.
+  _send(a, extra) { Net.sendEvent("dine", { a, ...extra }); }
+  _do(a, extra) { this.apply({ a, ...(extra || {}) }); this._send(a, extra); }
+
+  _isLeader() {
+    const r = this.game.remoteState;
+    if (r && r.world === this.game.worldKey && r.id && Net.sessionId) return Net.sessionId < r.id;
+    return true; // alone (or offline): you run the flow
+  }
+
   // called by Game when E is pressed; returns true if it consumed the key
   interact(playerPos) {
     if (!this.host) return false; // still building
     const near = (g, r) => Math.hypot(g.position.x - playerPos.x, g.position.z - playerPos.z) < r;
     if (this.state === "enter" && near(this.host.avatar.group, 3.2)) {
-      this.state = "walking";
-      this.stateT = 0;
-      this.hostArrived = false;
-      this.host.avatar.say(C.restaurant.hostRightThisWay);
-      const tb = this.yourTable;
-      this.routeNpc(this.host, tb.x, tb.z + 2.0, () => {
-        this.hostArrived = true;
-        this.host.avatar.say(C.restaurant.hostBestSeat);
-      });
-      UI.addSystem(C.restaurant.followHost);
+      this._do("walk");
       return true;
     }
     if (this.state === "walking" && this.hostArrived &&
         Math.hypot(this.yourTable.x - playerPos.x, this.yourTable.z - playerPos.z) < 3.4) {
-      this.seatPlayer();
+      this._do("seat");
       return true;
     }
     if (this.state === "eating" && this.stateT > 8) {
-      this.requestBill();
+      this._do("bill");
       return true;
     }
     if (this.state === "paid" && near({ position: this.doorPos }, 3.2)) {
       this.game.exitRestaurant();
       return true;
     }
-    if (this.state === "paid") {
-      // also let them leave from anywhere near the front
-      return false;
-    }
     return false;
+  }
+
+  // single entry point for BOTH local actions and partner events
+  apply(ev) {
+    switch (ev.a) {
+      case "walk":      this._applyWalk(); break;
+      case "seat":      this._applySeat(); break;
+      case "menu":      this._applyMenu(); break;
+      case "order":     this._applyOrder(ev.items); break;
+      case "food":      this._applyFood(); break;
+      case "bill":      this._applyBill(); break;
+      case "billready": this._applyBillReady(); break;
+      case "paid":      this._applyPaid(); break;
+      case "hello":     if (this._isLeader() && this.state !== "enter") this._send("dsnap", { s: this._snapshot() }); break;
+      case "dsnap":     if (this.state === "enter" && ev.s) this._applySnapshot(ev.s); break;
+    }
+  }
+
+  _applyWalk() {
+    if (this.state !== "enter") return;
+    this.state = "walking";
+    this.stateT = 0;
+    this.hostArrived = false;
+    this.host.avatar.say(C.restaurant.hostRightThisWay);
+    const tb = this.yourTable;
+    this.routeNpc(this.host, tb.x, tb.z + 2.0, () => {
+      this.hostArrived = true;
+      this.host.avatar.say(C.restaurant.hostBestSeat);
+    });
+    UI.addSystem(C.restaurant.followHost);
+  }
+
+  // seat MY OWN avatar in the role-correct chair (runs on each client)
+  _seatSelf() {
+    const tb = this.yourTable;
+    const g = this.game;
+    const side = g.role === "her" ? -1 : 1;
+    g.controls.pos.set(tb.x + side * 1.05, 0, tb.z);
+    g.seatedAt = { x: tb.x + side * 1.05, z: tb.z, ry: side > 0 ? -Math.PI / 2 : Math.PI / 2, y: 0.22 };
+    g.avatar.group.position.set(tb.x + side * 1.05, 0.22, tb.z);
+    g.avatar.group.rotation.y = g.seatedAt.ry;
+    g.controls.yaw = side * Math.PI / 4;
+    g.controls.dist = 4.8;
+    g.controls.pitch = 0.5;
+  }
+
+  _applySeat() {
+    if (this.state !== "walking" && this.state !== "enter") return;
+    this.state = "seated";
+    this.stateT = 0;
+    this._seatSelf();
+    this.host.avatar.say(C.restaurant.serverComing);
+    this.routeNpc(this.host, 2.2, this.D / 2 - 3.4); // host returns to the stand
+    // the leader brings the server over to take the order
+    if (this._isLeader()) {
+      setTimeout(() => { if (this.state === "seated") this._do("menu"); }, 1600);
+    }
   }
 
   prompt(playerPos) {
@@ -504,62 +564,51 @@ export class RestaurantWorld {
     return null;
   }
 
-  seatPlayer() {
-    const tb = this.yourTable;
-    this.state = "seated";
+  // server walks over; the menu opens on BOTH clients (either may order)
+  _applyMenu() {
+    if (this.state !== "seated") return;
+    this.state = "ordering";
     this.stateT = 0;
-    const g = this.game;
-    // each of you takes a chair by role, so a couple sits face to face
-    const side = g.role === "her" ? -1 : 1;
-    g.controls.pos.set(tb.x + side * 1.05, 0, tb.z);
-    g.seatedAt = { x: tb.x + side * 1.05, z: tb.z, ry: side > 0 ? -Math.PI / 2 : Math.PI / 2 };
-    g.avatar.group.position.set(tb.x + side * 1.05, 0.22, tb.z);
-    g.avatar.group.rotation.y = g.seatedAt.ry;
-    // camera: cozy view down onto the table for two
-    g.controls.yaw = side * Math.PI / 4;
-    g.controls.dist = 4.8;
-    g.controls.pitch = 0.5;
-    this.host.avatar.say(C.restaurant.serverComing);
-    this.routeNpc(this.host, 2.2, this.D / 2 - 3.4); // back to the stand
-    // server approaches
-    setTimeout(() => {
-      if (this.state !== "seated") return;
-      this.routeNpc(this.server, tb.x, tb.z + 1.7, () => {
-        this.server.avatar.say(C.restaurant.serverWelcome);
-        this.state = "ordering";
-        this.stateT = 0;
-        UI.openMenu(this.poi.n, this.cuisine, this.menu, (picked) => this.placeOrder(picked));
-      });
-    }, 1600);
+    const tb = this.yourTable;
+    this.routeNpc(this.server, tb.x, tb.z + 1.7, () => this.server.avatar.say(C.restaurant.serverWelcome));
+    UI.openMenu(this.poi.n, this.cuisine, this.menu, (picked) => {
+      const names = picked.map((p) => p[0]).join(", ");
+      this.game.avatar.say(names.length > 60 ? C.restaurant.orderAllOfThat : fmt(C.restaurant.orderNamed, { names }));
+      // broadcast indices into the (deterministic) menu so both reconstruct it
+      this._do("order", { items: picked.map((p) => this.menu.indexOf(p)) });
+    });
   }
 
-  placeOrder(picked) {
-    this.order = picked; // array of menu entries
+  // whoever ordered broadcasts it; both clients close the menu + cook
+  _applyOrder(items) {
+    if (this.state !== "ordering") return;
+    if (UI.dineOpen()) UI.closeDine(); // close my menu if it's still up
+    this.order = (items || []).map((i) => this.menu[i]).filter(Boolean);
     this.state = "waiting";
     this.stateT = 0;
-    const names = picked.map((p) => p[0]).join(", ");
-    this.game.avatar.say(names.length > 60 ? C.restaurant.orderAllOfThat : fmt(C.restaurant.orderNamed, { names }));
     setTimeout(() => this.server.avatar.say(C.restaurant.serverExcellent), 900);
-    // server walks the order to the kitchen pass
     setTimeout(() => {
       this.routeNpc(this.server, 0, -this.D / 2 + 3.2, () => {
         this.chefs?.forEach((ch) => ch.avatar.say(C.restaurant.chefsOuiChef));
       });
     }, 1700);
-    // food is ready after a short cook
-    setTimeout(() => {
-      if (this.state !== "waiting") return;
-      const tb = this.yourTable;
-      this.routeNpc(this.server, tb.x, tb.z + 1.7, () => {
-        this.server.avatar.say(C.restaurant.serverBonAppetit);
-        const spots = [-0.3, 0.3, 0, -0.15, 0.15];
-        this.order.slice(0, 5).forEach((item, i) => this.placeFood(tb, item[2], spots[i]));
-        this.state = "eating";
-        this.stateT = 0;
-        UI.addSystem(C.restaurant.drawCardHint);
-        this.routeNpc(this.server, -this.W / 2 + 2.5, -this.D / 2 + 3.4);
-      });
-    }, 9000);
+    if (this._isLeader()) {
+      setTimeout(() => { if (this.state === "waiting") this._do("food"); }, 9000);
+    }
+  }
+
+  _applyFood() {
+    if (this.state !== "waiting") return;
+    this.state = "eating";
+    this.stateT = 0;
+    const tb = this.yourTable;
+    this.routeNpc(this.server, tb.x, tb.z + 1.7, () => {
+      this.server.avatar.say(C.restaurant.serverBonAppetit);
+      const spots = [-0.3, 0.3, 0, -0.15, 0.15];
+      this.order.slice(0, 5).forEach((item, i) => this.placeFood(tb, item[2], spots[i]));
+      this.routeNpc(this.server, -this.W / 2 + 2.5, -this.D / 2 + 3.4);
+    });
+    UI.addSystem(C.restaurant.drawCardHint);
   }
 
   drawTopic(broadcast = true) {
@@ -578,34 +627,90 @@ export class RestaurantWorld {
     UI.showTopic(TABLE_TALK[i], n);
   }
 
-  requestBill() {
+  _applyBill() {
+    if (this.state !== "eating") return;
     this.state = "billing";
     this.stateT = 0;
-    this._billOpened = false;
     const tb = this.yourTable;
-    const openBill = () => {
-      if (this._billOpened || this.state !== "billing") return;
-      this._billOpened = true;
-      const total = this.order.reduce((s, it) => s + it[1], 0);
-      const currency = this.city === "paris" ? "€" : this.city === "tangerang" ? "$" : "$";
-      UI.openBill(this.poi.n, this.order, total, currency, () => {
-        this.state = "paid";
-        this.stateT = 0;
-        this.server.avatar.say(C.restaurant.serverComeBack);
-        const g = this.game;
-        g.controls.enabled = true;
-        g.seatedAt = null;
-        g.avatar.group.position.y = 0;
-        g.controls.pos.set(tb.x + 1.05, 0, tb.z + 1.4);
-        UI.addSystem(C.restaurant.dinnerOnYou);
-        this.routeNpc(this.server, -this.W / 2 + 2.5, -this.D / 2 + 3.4);
-      });
-    };
     this.routeNpc(this.server, tb.x, tb.z + 1.7);
-    this.server.onArrive = openBill;
-    // fallback: never soft-lock in "billing" if the server can't reach the
-    // table (blocked path, throttled tab) — bring the bill after a grace wait
-    setTimeout(openBill, 4500);
+    // the leader decides WHEN the bill is ready (server arrives, or a grace
+    // fallback) and broadcasts it, so both clients open the bill together
+    if (this._isLeader()) {
+      this._billOpened = false;
+      const fire = () => {
+        if (this._billOpened || this.state !== "billing") return;
+        this._billOpened = true;
+        this._do("billready");
+      };
+      this.server.onArrive = fire;
+      setTimeout(fire, 4500);
+    }
+  }
+
+  _applyBillReady() {
+    if (this.state !== "billing" || this._billShown) return;
+    this._billShown = true;
+    const total = this.order.reduce((s, it) => s + it[1], 0);
+    const currency = this.city === "paris" ? "€" : "$";
+    UI.openBill(this.poi.n, this.order, total, currency, () => this._do("paid"));
+  }
+
+  _applyPaid() {
+    if (this.state !== "billing" && this.state !== "eating") return;
+    this.state = "paid";
+    this.stateT = 0;
+    if (UI.dineOpen()) UI.closeDine(); // close my bill if it's still up
+    this.server.avatar.say(C.restaurant.serverComeBack);
+    const g = this.game;
+    const tb = this.yourTable;
+    g.seatedAt = null;            // un-seat MY OWN avatar (frame loop re-enables controls)
+    g.avatar.group.position.y = 0;
+    g.controls.pos.set(tb.x + 1.05, 0, tb.z + 1.4);
+    UI.addSystem(C.restaurant.dinnerOnYou);
+    this.routeNpc(this.server, -this.W / 2 + 2.5, -this.D / 2 + 3.4);
+  }
+
+  // ----- late-join: a partner walks in while you're already mid-dinner -----
+  _snapshot() {
+    return {
+      state: this.state,
+      items: this.order.map((it) => this.menu.indexOf(it)).filter((i) => i >= 0),
+      topicIdx: this.topicIdx,
+      cardCount: this.cardCount,
+    };
+  }
+
+  _applySnapshot(s) {
+    if (this.state !== "enter") return;
+    this.order = (s.items || []).map((i) => this.menu[i]).filter(Boolean);
+    this.topicIdx = s.topicIdx ?? null;
+    this.cardCount = s.cardCount ?? 0;
+    const st = s.state;
+    const tb = this.yourTable;
+    if (["seated", "ordering", "waiting", "eating", "billing", "paid"].includes(st)) {
+      this.hostArrived = true;
+      this.routeNpc(this.host, 2.2, this.D / 2 - 3.4);
+      if (st === "paid") {
+        // they already paid — just stand near the table, free to walk out
+        this.state = "paid";
+      } else {
+        this._seatSelf();
+        this.state = st;
+      }
+      if (["eating", "billing", "paid"].includes(st)) {
+        const spots = [-0.3, 0.3, 0, -0.15, 0.15];
+        this.order.slice(0, 5).forEach((item, i) => this.placeFood(tb, item[2], spots[i]));
+      }
+      if (st === "ordering") {
+        // catch them up to the menu so they can order too
+        UI.openMenu(this.poi.n, this.cuisine, this.menu, (picked) => {
+          this.game.avatar.say(fmt(C.restaurant.orderNamed, { names: picked.map((p) => p[0]).join(", ") }));
+          this._do("order", { items: picked.map((p) => this.menu.indexOf(p)) });
+        });
+      }
+    } else {
+      this.state = st;
+    }
   }
 
   // tables, walls — and the two of you. Staff walk around people too.

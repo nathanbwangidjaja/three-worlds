@@ -692,7 +692,7 @@ export class CafeWorld {
 
   _applyPay(cid, amt, line) {
     const c = this.customers.find((o) => o.id === cid);
-    if (!c) return;
+    if (!c || c.state === "leaving") return; // idempotent: never double-count a payment
     this.earnings += amt;
     this.servedCount++;
     c.state = "leaving";
@@ -706,8 +706,12 @@ export class CafeWorld {
     c.avatar.group.position.y = 0;
     c.path = [new THREE.Vector3(0.8, 0, 3.4), new THREE.Vector3(this.door.x, 0, this.door.z)];
     this._updateHud();
-    if (this.servedCount === 5) UI.setBanner(C.cafe.firstRushBanner);
-    if (this.servedCount === 6) setTimeout(() => UI.setBanner(null), 100);
+    // threshold (not exact equality) so it still fires if a count is missed
+    if (this.servedCount >= 5 && !this._rushShown) {
+      this._rushShown = true;
+      UI.setBanner(C.cafe.firstRushBanner);
+      setTimeout(() => UI.setBanner(null), 4000);
+    }
   }
 
   _updateHud() {
@@ -860,7 +864,9 @@ export class CafeWorld {
         const id = this.nextId++;
         const ev = {
           a: "spawn", id,
-          seed: (id * 2654435761 ^ Date.now()) >>> 0,
+          // deterministic from id only, so a late-join snapshot reproduces the
+          // exact same customer (look/order/table) on every client
+          seed: (Math.imul(id, 2654435761)) >>> 0,
           n: CUSTOMER_NAMES[id % CUSTOMER_NAMES.length],
         };
         this.apply(ev); this._send(ev);

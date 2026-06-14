@@ -6,6 +6,7 @@
 import * as THREE from "three";
 import { Avatar, randomNpcLook } from "./Avatar.js";
 import { C, fmt } from "./copy.js";
+import { Net } from "../net.js";
 
 const FLOOR_H = 3.8;
 
@@ -80,6 +81,7 @@ export class CampusWorld {
     this.game = game;
     this.group = new THREE.Group();
     this.isInterior = true;
+    this.isCampus = true;
     this.isPhotoreal = false;
     this.W = this.cfg.W;
     this.D = this.cfg.D;
@@ -494,6 +496,8 @@ export class CampusWorld {
       this.floor = (this.floor + 1) % 3;
       this.game.controls.pos.set(this.stairPos.x + 3.4, 0, this.stairPos.z + 3.4);
       this.game.groundY = this.floor * FLOOR_H; // arrive on the landing instantly
+      // tell the partner which storey we're on (so we don't clip through floors)
+      Net.sendEvent?.("campusFloor", { world: this.game.worldKey, floor: this.floor });
       return;
     }
     if (this.floor === 0 && Math.hypot(p.x - this.doorPos.x, p.z - this.doorPos.z) < 3) {

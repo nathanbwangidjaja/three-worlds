@@ -99,6 +99,9 @@ export class Game {
 
     this.remote = null;          // { avatar, target:{...}, state }
     this.remoteState = null;     // latest known partner state (any world)
+    this.remoteBench = null;     // partner's bench seat {x,z,ry} while sitting
+    this.remoteSummit = false;   // partner is up the Eiffel summit
+    this.remoteFloor = null;     // partner's campus floor (interiors)
 
     this.worldKey = null;
     this.world = null;           // WorldBuilder
@@ -165,7 +168,8 @@ export class Game {
       }
       if (partner.world === this.worldKey) {
         UI.setPartnerStatus(`💞 ${partner.name} is here with you`);
-        if (!this.remote) this._spawnRemote(partner);
+        // (re)spawn only when there's no avatar or the partner is a new session
+        if (!this.remote || this.remote.id !== partner.id) this._spawnRemote(partner);
         if (this.remote && this.remote.name !== partner.name) {
           this.remote.avatar.setName(partner.name);
           this.remote.name = partner.name;
@@ -191,6 +195,18 @@ export class Game {
       }
       if (m.kind === "cafe" && m.data && this.world?.isCafe) {
         this.world.apply(m.data);
+      }
+      if (m.kind === "dine" && m.data && this.world?.isRestaurant) {
+        this.world.apply(m.data);
+      }
+      if (m.kind === "bench" && m.data) {
+        this.remoteBench = m.data.a === "sit" ? { x: m.data.x, z: m.data.z, ry: m.data.ry } : null;
+      }
+      if (m.kind === "summit" && m.data) {
+        this.remoteSummit = !!m.data.up;
+      }
+      if (m.kind === "campusFloor" && m.data && m.data.world === this.worldKey) {
+        this.remoteFloor = m.data.floor;
       }
       if (m.kind === "anniv" && this.worldKey === "paris") {
         // the partner set off the fireworks — share the moment
@@ -221,6 +237,22 @@ export class Game {
           // they walked into the café mid-shift — hand them the state
           this.world.apply({ a: "hello" });
         }
+        if (this.world?.isRestaurant && m.data?.world === this.worldKey) {
+          // they walked into the restaurant mid-dinner — catch them up
+          this.world.apply({ a: "hello" });
+        }
+        if (this.world?.isCampus && m.data?.world === this.worldKey) {
+          // tell the newcomer which storey we're on
+          Net.sendEvent?.("campusFloor", { world: this.worldKey, floor: this.world.floor });
+        }
+        if (this.summit) {
+          // tell the newcomer we're up the tower
+          Net.sendEvent?.("summit", { up: true });
+        }
+        if (this.annivShow?.active && this.worldKey === "paris") {
+          // the fireworks are already going — start them for the newcomer too
+          Net.sendEvent?.("anniv", { world: "paris" });
+        }
       }
     });
 
@@ -242,13 +274,22 @@ export class Game {
   }
 
   _spawnRemote(state) {
+    // ALWAYS clear any existing remote first, or a previously-spawned avatar
+    // gets orphaned in the scene (a "ghost" that never moves). This can happen
+    // if a `players` update arrives during loadWorld's async build and spawns
+    // the partner before loadWorld re-spawns them.
+    this._removeRemote();
     const avatar = new Avatar(state.role, state.name, { outfit: state.outfit ?? 0 });
     avatar.group.position.set(state.x, state.y, state.z);
     this.scene.add(avatar.group);
-    this.remote = { avatar, target: state, name: state.name, heading: state.ry };
+    this.remote = { avatar, target: state, name: state.name, heading: state.ry, id: state.id };
   }
 
   _removeRemote() {
+    // clear partner presence overrides so they never leak across worlds
+    this.remoteBench = null;
+    this.remoteSummit = false;
+    this.remoteFloor = null;
     if (!this.remote) return;
     this.scene.remove(this.remote.avatar.group);
     this.remote.avatar.dispose();
@@ -484,9 +525,12 @@ export class Game {
     // re-evaluate partner presence in this world
     if (this.remoteState) {
       if (this.remoteState.world === key) {
-        this._spawnRemote(this.remoteState);
+        // a `players` update during the async build above may have already
+        // spawned them — only spawn if missing or it's a different session
+        if (!this.remote || this.remote.id !== this.remoteState.id) this._spawnRemote(this.remoteState);
         UI.setPartnerStatus(`💞 ${this.remoteState.name} is here with you`);
       } else {
+        this._removeRemote(); // partner isn't here — make sure no ghost lingers
         UI.setPartnerStatus(STORY.partnerWorld(this.remoteState.name, THEMES[this.remoteState.world]?.title ?? ""));
       }
     }
@@ -813,6 +857,7 @@ export class Game {
     UI.addSystem(this.role === "you"
       ? C.anniversary.summitHim
       : C.anniversary.summitHer);
+    Net.sendEvent?.("summit", { up: true });
     UI.fadeOut();
   }
 
@@ -849,6 +894,7 @@ export class Game {
     this.controls.pos.set(x, 0, z);
     this.groundY = 0;
     this.controls.dist = 9;
+    Net.sendEvent?.("summit", { up: false });
     UI.fadeOut();
   }
 
@@ -867,6 +913,8 @@ export class Game {
     this.controls.pitch = 0.22;
     this.controls.dist = 5.5;
     UI.addSystem(C.system.benchSitting);
+    // let the partner see us sitting on this exact spot
+    Net.sendEvent?.("bench", { a: "sit", x: sx, z: sz, ry: b.ry });
   }
 
   standUp() {
@@ -875,6 +923,7 @@ export class Game {
     if (s) {
       this.controls.pos.set(s.x + Math.sin(s.ry) * 0.9, 0, s.z + Math.cos(s.ry) * 0.9);
     }
+    Net.sendEvent?.("bench", { a: "stand" });
   }
 
   // ------------------------------------------------------------------ cars
@@ -1262,7 +1311,11 @@ export class Game {
     UI.setLocation(door.poi.n, `${this.world.cuisine} · a table for two`);
     UI.setAttribution("");
     Net.sendWorld({ world: rid, x: sx, z: sz });
-    if (this.remoteState?.world === rid) this._spawnRemote(this.remoteState);
+    if (this.remoteState?.world === rid && (!this.remote || this.remote.id !== this.remoteState.id)) {
+      this._spawnRemote(this.remoteState);
+    }
+    // if the partner is already inside mid-dinner, ask them to catch us up
+    Net.sendEvent?.("hello", { world: rid });
     UI.fadeOut();
   }
 
@@ -1319,7 +1372,11 @@ export class Game {
     UI.setLocation(cfg.name, cfg.sub);
     UI.setAttribution("");
     Net.sendWorld({ world: cid, x: sx, z: sz });
-    if (this.remoteState?.world === cid) this._spawnRemote(this.remoteState);
+    if (this.remoteState?.world === cid && (!this.remote || this.remote.id !== this.remoteState.id)) {
+      this._spawnRemote(this.remoteState);
+    }
+    // if the partner is already inside on an upper floor, learn which one
+    Net.sendEvent?.("hello", { world: cid });
     UI.fadeOut();
   }
 
@@ -1388,7 +1445,12 @@ export class Game {
     UI.setLocation(door.poi.n, "hers · the two of you on shift ☕");
     UI.setAttribution("");
     Net.sendWorld({ world: fid, x: sx, z: sz });
-    if (this.remoteState?.world === fid) this._spawnRemote(this.remoteState);
+    if (this.remoteState?.world === fid && (!this.remote || this.remote.id !== this.remoteState.id)) {
+      this._spawnRemote(this.remoteState);
+    }
+    // ask whoever's already on shift for the current floor state (customers,
+    // earnings) — the café "hello" handler makes the leader send a snapshot
+    Net.sendEvent?.("hello", { world: fid });
     UI.fadeOut();
   }
 
@@ -1600,14 +1662,29 @@ export class Game {
           ty = rg + Math.max(0, Math.min(3, tgt.y - rg));
         }
       }
-      g.position.x += (tgt.x - g.position.x) * Math.min(1, dt * 10);
-      g.position.y += (ty - g.position.y) * Math.min(1, dt * 10);
-      g.position.z += (tgt.z - g.position.z) * Math.min(1, dt * 10);
-      let rdh = tgt.ry - g.rotation.y;
-      while (rdh > Math.PI) rdh -= Math.PI * 2;
-      while (rdh < -Math.PI) rdh += Math.PI * 2;
-      g.rotation.y += rdh * Math.min(1, dt * 10);
-      r.avatar.animate(dt, tgt.speed, t);
+      // partner sitting on a bench: pin them to the seat in an idle pose
+      const benched = this.remoteBench && this.worldKey === "paris";
+      if (benched) {
+        g.position.set(this.remoteBench.x, 0.27, this.remoteBench.z);
+        g.rotation.y = this.remoteBench.ry;
+      } else {
+        g.position.x += (tgt.x - g.position.x) * Math.min(1, dt * 10);
+        g.position.y += (ty - g.position.y) * Math.min(1, dt * 10);
+        g.position.z += (tgt.z - g.position.z) * Math.min(1, dt * 10);
+        let rdh = tgt.ry - g.rotation.y;
+        while (rdh > Math.PI) rdh -= Math.PI * 2;
+        while (rdh < -Math.PI) rdh += Math.PI * 2;
+        g.rotation.y += rdh * Math.min(1, dt * 10);
+      }
+      r.avatar.animate(dt, benched ? 0 : tgt.speed, t);
+
+      // hide the partner avatar when we're on different "levels" so they
+      // never float in the sky or clip through a floor: one of us up the
+      // Eiffel summit, or on a different campus storey
+      let coLocated = true;
+      if (this.summit !== this.remoteSummit) coLocated = false;
+      if (this.world?.isCampus && this.remoteFloor !== null && this.remoteFloor !== this.world.floor) coLocated = false;
+      if (g.visible !== coLocated) g.visible = coLocated;
 
       // partner in a car: their car follows them, they sit inside it
       const cs = this.remoteCarState;
